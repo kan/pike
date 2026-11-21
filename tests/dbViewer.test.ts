@@ -2,15 +2,24 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cellsOf, csvPageBounds, renderCsvPage, sortCsvRows } from '../src/lib/csvPreview'
 import {
+  buildDbCandidates,
   buildDbTarget,
+  connectionKey,
+  type DbSavedConnection,
   dbCandidatesFromEnv,
   dbEngineOfImage,
   dbResultToCsv,
   formatDbResult,
   missingClients,
   parseDatabaseUrl,
+  parseSavedConnections,
+  removeSaved,
+  savedToTarget,
+  targetToSaved,
+  upsertSaved,
 } from '../src/lib/dbViewer'
-import { findDbTab, type Tab } from '../src/types/tab'
+import type { DbTarget } from '../src/types/db'
+import { findDbTab, type ShellType, type Tab } from '../src/types/tab'
 
 test('イメージ名から DB の種類を当てる', () => {
   assert.equal(dbEngineOfImage('mysql:8'), 'mysql')
@@ -119,19 +128,105 @@ test('.env から候補を拾う', () => {
   assert.equal(got[2].password, 'se#cret')
 })
 
-test('同じコンテナの DB タブは今のプロジェクトのものだけを使い回す', () => {
+test('同じ接続先の DB タブは今のプロジェクトのものだけを使い回す', () => {
+  const target: DbTarget = { engine: 'mysql', via: { kind: 'container', containerId: 'c1' } }
+  const key = connectionKey(target)
   const tab = (id: string, projectId: string): Tab => ({
     id,
     kind: 'db',
     title: 'db',
     pinned: false,
-    container: { id: 'c1', name: 'db', engine: 'mysql' },
+    target,
+    key,
     projectId,
   })
   const tabs = [tab('a', 'project-a'), tab('b', 'project-b')]
-  assert.equal(findDbTab(tabs, 'c1', 'project-b')?.id, 'b')
-  assert.equal(findDbTab(tabs, 'c1', 'project-c'), undefined)
-  assert.equal(findDbTab(tabs, 'c2', 'project-a'), undefined)
+  assert.equal(findDbTab(tabs, key, 'project-b')?.id, 'b')
+  assert.equal(findDbTab(tabs, key, 'project-c'), undefined)
+  assert.equal(findDbTab(tabs, 'container:c2', 'project-a'), undefined)
+})
+
+const wsl: ShellType = { kind: 'wsl', distro: 'Ubuntu' }
+
+test('接続先の同一性はパスワードを含めず、空の欄と未指定を同じに扱う', () => {
+  const a: DbTarget = {
+    engine: 'mysql',
+    via: { kind: 'shell', shell: wsl },
+    host: '127.0.0.1',
+    port: 3306,
+    user: 'app',
+  }
+  const b: DbTarget = { ...a, password: 'pw', database: '' }
+  assert.equal(connectionKey(a), connectionKey(b))
+  assert.notEqual(connectionKey(a), connectionKey({ ...a, port: 3307 }))
+  assert.notEqual(connectionKey(a), connectionKey({ ...a, via: { kind: 'shell', shell: { kind: 'cmd' } } }))
+  assert.equal(connectionKey({ engine: 'postgres', via: { kind: 'container', containerId: 'x' } }), 'container:x')
+})
+
+test('候補はコンテナ・保存した接続・.env の順で、.env と同じ保存した接続には .env のパスワードを持たせる', () => {
+  const saved: DbSavedConnection = {
+    engine: 'mysql',
+    shell: wsl,
+    host: '127.0.0.1',
+    port: 33306,
+    user: 'app',
+    database: 'app',
+  }
+  const env = dbCandidatesFromEnv(
+    ['DATABASE_URL=mysql://app:apppw@127.0.0.1:33306/app', 'TEST_DATABASE_URL=postgres://p@localhost/t'].join('\n'),
+  )
+  const list = buildDbCandidates({
+    containers: [{ id: 'c1', name: 'mysql', image: 'mysql:8', engine: 'mysql' }],
+    saved: [saved],
+    env,
+    shell: wsl,
+  })
+  assert.deepEqual(
+    list.map((c) => [c.kind, c.label]),
+    [
+      ['container', 'mysql'],
+      ['saved', 'app@127.0.0.1:33306/app'],
+      ['env', 'p@localhost:5432/t'],
+    ],
+  )
+  // .env と重なった保存した接続は 1 行にまとめ、押せばそのまま .env のパスワードでつなぐ。
+  assert.equal(list[1].target.password, 'apppw')
+  assert.equal(targetToSaved(list[1].target)?.port, 33306)
+  // 保存する形にパスワードは入らない。
+  assert.equal(JSON.stringify(targetToSaved(list[1].target)).includes('apppw'), false)
+  assert.equal(targetToSaved(list[0].target), null)
+})
+
+test('保存した接続は同じものを 1 つにまとめて先頭へ寄せ、壊れた値は落とす', () => {
+  const s = (port: number): DbSavedConnection => ({
+    engine: 'postgres',
+    shell: wsl,
+    host: 'h',
+    port,
+    user: 'u',
+    database: 'd',
+  })
+  let list = upsertSaved([], s(1))
+  list = upsertSaved(list, s(2))
+  list = upsertSaved(list, s(1))
+  assert.deepEqual(
+    list.map((x) => x.port),
+    [1, 2],
+  )
+  assert.deepEqual(
+    removeSaved(list, connectionKey(savedToTarget(s(2)))).map((x) => x.port),
+    [1],
+  )
+  assert.deepEqual(parseSavedConnections([s(3), { engine: 'oracle', shell: wsl }, 'x', null]), [s(3)])
+  // distro の無い WSL のような、シェルとして成り立たないものも落とす。
+  assert.deepEqual(
+    parseSavedConnections([
+      { ...s(4), shell: { kind: 'wsl' } },
+      { ...s(5), shell: { kind: 'zsh' } },
+    ]),
+    [],
+  )
+  assert.deepEqual(parseSavedConnections({}), [])
 })
 
 test('クライアントが無いエラーを見分ける', () => {

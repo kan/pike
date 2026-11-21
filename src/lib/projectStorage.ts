@@ -16,6 +16,8 @@ export const PROJECT_KEY_PREFIX = {
   tasksCollapsed: 'pike:tasks-collapsed:',
   /** 作業領域の分割の比率（`TabPane.vue`、#308）。 */
   splitRatio: 'pike:split-ratio:',
+  /** DB ビューワの保存した接続（`stores/db.ts`、#632。パスワードは持たない）。 */
+  dbConnections: 'pike:db-connections:',
 } as const
 
 /** 値が id の配列の項目。 */

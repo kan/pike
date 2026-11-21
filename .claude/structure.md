@@ -150,6 +150,7 @@ pike/
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
 │   │   ├── CreateWorktreeDialog.vue # worktree の作成ダイアログ（名前・ベースブランチ・作成先、#478）
+│   │   ├── DbConnectDialog.vue # DB ビューワの接続のダイアログ（接続のフォームはここ 1 つ、#632）
 │   │   ├── WatcherNotice.vue    # ファイル監視の知らせの帯（ツリーと設定画面で共有、#385）
 │   │   ├── ToolNotice.vue       # 足りないツールの帯の見た目（ファイル監視と ripgrep で共有）
 │   │   ├── layout/
@@ -170,6 +171,7 @@ pike/
 │   │   │   ├── ProfileRow.vue     # 並べ替え + 表示/非表示の 1 行（シェル #129 とエージェント #275 で共有）
 │   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（#373 以降は編集フォームだけ）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
+│   │   │   ├── DbPanel.vue        # DB ビューワの接続先の候補（コンテナ・保存した接続・.env、#632）
 │   │   │   ├── GitErrorBlock.vue  # Git パネル上部のエラー表示（閉じる・コピー・エージェントへの依頼、#436）
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
@@ -208,7 +210,7 @@ pike/
 │   │       ├── DiffTab.vue        # 左右分割 diff
 │   │       ├── HistoryTab.vue     # ファイル別 git log（git log -L 行範囲対応）
 │   │       ├── DockerLogsTab.vue  # コンテナログ（xterm 読み取り専用）
-│   │       ├── DbTab.vue          # 簡易 DB ビューワ（接続先 → テーブル → 中身 / スキーマ、表は CSV プレビューの部品、#632）
+│   │       ├── DbTab.vue          # 簡易 DB ビューワ（つなげた接続先のテーブル → 中身 / スキーマ、表は CSV プレビューの部品、#632）
 │   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
 │   │       ├── IssueTab.vue       # GitHub issue 1 件の読み取り専用表示（gh 経由、#278）
 │   │       ├── CommitTab.vue      # コミット 1 つのメッセージと全ファイルの差分（グラフ表示のクリック、#374）
@@ -222,6 +224,7 @@ pike/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts  settings.ts  project.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
+│   │   ├── db.ts              # DB ビューワの接続先の候補・自動接続・接続のダイアログ・保存した接続（#632）
 │   │   ├── diagnostics.ts  issues.ts
 │   │   ├── ci.ts              # CI の実行の一覧と、実行中だけのポーリング（#457）
 │   │   ├── browser.ts         # ブラウザのタブの閲覧履歴（#368。マシンごと。ブックマークは settings.ts）
@@ -289,7 +292,7 @@ pike/
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
 │   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）
 │   │   ├── csvPreview.ts     # CSV プレビューの表（読み込み・並べ替え・ページ送りの HTML）
-│   │   ├── dbViewer.ts       # DB ビューワの純粋な部分（イメージ名で種類を当てる・結果を表と CSV / TSV にする・.env の候補、#632）
+│   │   ├── dbViewer.ts       # DB ビューワの純粋な部分（イメージ名で種類を当てる・結果を表と CSV / TSV にする・接続先の候補と保存する形、#632）
 │   │   ├── copyOnSelect.ts   # ターミナルの「選択時にコピー」の 3 値と、古い版の真偽値との読み替え（#408）
 │   │   ├── domFind.ts        # 描画済み DOM の文字検索と CSS Custom Highlight の登録（#360）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）

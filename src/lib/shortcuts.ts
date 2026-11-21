@@ -103,8 +103,6 @@ export const APP_ACTIONS = [
   { id: 'manual', palette: 'help' },
   // ブラウザのタブ（#368）。URL を聞いてから開く。
   { id: 'openBrowser', palette: 'view' },
-  // 簡易 DB ビューワ（#632）。接続先はタブの中で選ぶ。
-  { id: 'openDbViewer', palette: 'view' },
   { id: 'shortcuts', palette: 'help', labelKey: 'shortcuts.keyboardShortcuts' },
   { id: 'gitHistory' },
   // キーボードマクロ（#180）。キーは CodeMirror 層にあるので `keyBindings` には載せない
@@ -125,6 +123,8 @@ export const APP_ACTIONS = [
   { id: 'panelGit', palette: 'view', labelKey: 'sidebar.git', panel: 'git' },
   { id: 'panelSearch', palette: 'view', labelKey: 'sidebar.search', panel: 'search' },
   { id: 'panelDocker', palette: 'view', labelKey: 'sidebar.docker', panel: 'docker' },
+  // DB ビューワ（#632）の入口。接続先はパネルで選ぶ（つなげなければ接続のダイアログが出る）。
+  { id: 'panelDb', palette: 'view', labelKey: 'sidebar.db', panel: 'db' },
   { id: 'panelTasks', palette: 'view', labelKey: 'sidebar.tasks', panel: 'tasks' },
   { id: 'panelOutline', palette: 'view', labelKey: 'sidebar.outline', panel: 'outline' },
   { id: 'panelDiagnostics', palette: 'view', labelKey: 'sidebar.diagnostics', panel: 'diagnostics' },

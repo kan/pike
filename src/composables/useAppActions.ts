@@ -282,7 +282,6 @@ export function useAppActions(): Record<AppActionId, () => void> & {
       if (!trimmed || trimmed === 'https://') return
       tabStore.addBrowserTab(normalizeWebUrl(trimmed))
     },
-    openDbViewer: () => tabStore.addDbTab(),
     shortcuts: () => shortcutsModal.toggle(),
     // エディタタブ以外では何もしない（履歴を出す対象が無い）。メニューには載せない。
     gitHistory: () => {
@@ -330,6 +329,7 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     panelGit: () => togglePanel('git'),
     panelSearch: openSearch,
     panelDocker: () => togglePanel('docker'),
+    panelDb: () => togglePanel('db'),
     panelTasks: () => togglePanel('tasks'),
     panelOutline: () => togglePanel('outline'),
     panelDiagnostics: () => togglePanel('diagnostics'),

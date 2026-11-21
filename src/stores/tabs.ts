@@ -795,19 +795,41 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   /**
-   * DB ビューワ（#632）を開く。コンテナを渡すと、同じコンテナのタブがあればそれを前に出す。
-   * 渡さなければ（コマンドパレット）毎回新しいタブで、接続の画面から始まる。
+   * DB ビューワ（#632）のタブを開く。**つなげたことを確かめた接続先だけを渡す**（確かめるのは
+   * `stores/db.ts`）。同じ接続先のタブが今のプロジェクトにあれば、そのタブの接続先を差し替えて
+   * 前に出す（パスワードを入れ直したときなど）。
    */
-  function addDbTab(container?: DbTab['container']): string {
-    const existing = container && findDbTab(tabs.value, container.id, ownerProjectId.value)
+  function addDbTab(target: DbTab['target'], key: string, title: string): string {
+    const existing = findDbTab(tabs.value, key, ownerProjectId.value)
     if (existing) {
+      existing.target = target
       activeTabId.value = existing.id
       return existing.id
     }
     const id = genId()
-    pushTab({ id, kind: 'db', title: container ? container.name : 'DB', pinned: false, container })
+    pushTab({ id, kind: 'db', title, pinned: false, target, key })
     activeTabId.value = id
     return id
+  }
+
+  /** 同じ接続先の DB タブが今のプロジェクトにあれば前に出す。あれば true。 */
+  function focusDbTab(key: string): boolean {
+    const existing = findDbTab(tabs.value, key, ownerProjectId.value)
+    if (existing) activeTabId.value = existing.id
+    return !!existing
+  }
+
+  /**
+   * DB タブの接続先を差し替える（タブの中の「接続先を変える」）。差し替え先と同じ接続先の
+   * タブが別にあれば、そちらを前に出すだけにする（同じ接続先のタブを 2 枚にしない）。
+   */
+  function retargetDbTab(tabId: string, target: DbTab['target'], key: string, title: string): string {
+    const other = findDbTab(tabs.value, key, ownerProjectId.value)
+    const tab = tabs.value.find((t): t is Tab & DbTab => t.id === tabId && t.kind === 'db')
+    if (!tab || (other && other.id !== tabId)) return addDbTab(target, key, title)
+    Object.assign(tab, { target, key, title })
+    activeTabId.value = tab.id
+    return tab.id
   }
 
   /**
@@ -1620,6 +1642,8 @@ export const useTabStore = defineStore('tabs', () => {
     addHistoryTab,
     addDockerLogsTab,
     addDbTab,
+    focusDbTab,
+    retargetDbTab,
     addSettingsTab,
     addAgentStatusTab,
     addAgentSessionsTab,

@@ -7,6 +7,7 @@ import { dbEngineOfImage } from '../../lib/dbViewer'
 import { openLocalTunnel } from '../../lib/openUrl'
 import { basename, joinPath, normalizeSep, pathSep } from '../../lib/paths'
 import { dockerContainerPorts, dockerDetectShell } from '../../lib/tauri'
+import { useDbStore } from '../../stores/db'
 import { useDockerStore } from '../../stores/docker'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
@@ -17,6 +18,7 @@ const { t } = useI18n()
 
 const dockerStore = useDockerStore()
 const tabStore = useTabStore()
+const dbStore = useDbStore()
 const projectStore = useProjectStore()
 const sidebar = useSidebarStore()
 
@@ -83,10 +85,13 @@ async function openShell(containerId: string, containerName: string) {
   }
 }
 
-/** DB のコンテナ（イメージ名で判定）を DB ビューワで開く（#632）。 */
-function openDb(containerId: string, containerName: string, image: string) {
+/**
+ * DB のコンテナ（イメージ名で判定）を DB ビューワで開く（#632）。DB パネルの行と同じく、つないで
+ * から開き、つなげなければ接続のダイアログを出す（`stores/db.ts` の `open`）。
+ */
+function openDb(containerId: string, image: string) {
   const engine = dbEngineOfImage(image)
-  if (engine) tabStore.addDbTab({ id: containerId, name: containerName, engine })
+  if (engine) void dbStore.open({ engine, via: { kind: 'container', containerId } })
 }
 
 function tunnelsFor(containerId: string | undefined) {
@@ -193,7 +198,7 @@ onUnmounted(() => dockerStore.stopPolling())
                 <button
                   v-if="row.container.state === 'running' && dbEngineOfImage(row.container.image)"
                   :title="t('docker.openDb')"
-                  @click="openDb(row.container.id, row.name, row.container.image)"
+                  @click="openDb(row.container.id, row.container.image)"
                 ><Database :size="12" :stroke-width="2" /></button>
                 <button
                   v-if="row.container.state === 'running'"

@@ -4,7 +4,10 @@
  *
  * 接続とクエリは Rust（`src-tauri/src/db/`）が持つ。判断の記録は `.claude/rules/db.md`。
  */
+
+import { t } from '../i18n'
 import type { DbDumpFormat, DbEngine, DbResult, DbTarget, DbVia } from '../types/db'
+import { type ShellType, shellFromId, shellId, shellProfileLabel } from '../types/tab'
 import type { CsvData } from './csvPreview'
 
 /**
@@ -180,6 +183,183 @@ export function dbCandidatesFromEnv(text: string): DbConnCandidate[] {
     })
   }
   return out
+}
+
+// --- 接続の候補（DB パネルと接続のダイアログが共有する） ---
+
+/**
+ * 保存する接続（#632）。**パスワードは持たない**。保存するのはローカル / WSL の経路だけ
+ * （コンテナは動いているものを毎回一覧から出し、ユーザー名などはコンテナの環境変数から読む）。
+ */
+export interface DbSavedConnection {
+  engine: DbEngine
+  shell: ShellType
+  host: string
+  port: number | null
+  user: string
+  database: string
+}
+
+/** パネルに並べる接続先 1 つ。`target` は押したときにそのまま試す接続先。 */
+export interface DbCandidate {
+  /** 同じ接続先かの判定に使う（`connectionKey`）。 */
+  key: string
+  /** どこから来たか。`saved` だけが消せる。 */
+  kind: 'container' | 'saved' | 'env'
+  label: string
+  /** 補足（コンテナならイメージ、`.env` なら変数名）。 */
+  detail: string
+  target: DbTarget
+}
+
+/** 保存しておく接続の数の上限（古いものから落とす）。 */
+const DB_SAVED_MAX = 20
+
+/**
+ * 接続先の同一性。コンテナはコンテナの id、ローカル / WSL はシェル・種類・ホスト・ポート・
+ * ユーザー・DB 名で決める（パスワードは含めない）。空の欄と未指定は同じに扱う。
+ */
+export function connectionKey(target: DbTarget): string {
+  if (target.via.kind === 'container') return `container:${target.via.containerId}`
+  const parts = [
+    target.engine,
+    shellId(target.via.shell),
+    target.host ?? '',
+    target.port ?? '',
+    target.user ?? '',
+    target.database ?? '',
+  ]
+  return `shell:${JSON.stringify(parts)}`
+}
+
+/** 保存した接続から接続先を組む（パスワードは無い）。 */
+export function savedToTarget(s: DbSavedConnection): DbTarget {
+  return {
+    engine: s.engine,
+    via: { kind: 'shell', shell: s.shell },
+    host: s.host || undefined,
+    port: s.port ?? undefined,
+    user: s.user || undefined,
+    database: s.database || undefined,
+  }
+}
+
+/** 接続先から保存する形にする。コンテナの接続は保存しないので null。 */
+export function targetToSaved(target: DbTarget): DbSavedConnection | null {
+  if (target.via.kind !== 'shell') return null
+  return {
+    engine: target.engine,
+    shell: target.via.shell,
+    host: target.host ?? '',
+    port: target.port ?? null,
+    user: target.user ?? '',
+    database: target.database ?? '',
+  }
+}
+
+/** ローカル / WSL の接続先の表示名（`app@127.0.0.1:3306/app`）。空の欄は既定の値で補う。 */
+export function describeShellTarget(target: DbTarget): string {
+  const host = target.host || 'localhost'
+  const port = target.port ?? defaultPort(target.engine)
+  const user = target.user ? `${target.user}@` : ''
+  const db = target.database ? `/${target.database}` : ''
+  return `${user}${host}:${port}${db}`
+}
+
+/** 種類の表示名（ダイアログの選択肢、タブとパネルの添え書き）。 */
+export const ENGINE_LABELS: Record<DbEngine, string> = { mysql: 'MySQL / MariaDB', postgres: 'PostgreSQL' }
+
+/** `.env` の候補から接続先を組む（`savedToTarget` と対。パスワードは `.env` に書いてあれば入る）。 */
+function envToTarget(e: DbConnCandidate, shell: ShellType): DbTarget {
+  return {
+    engine: e.engine,
+    via: { kind: 'shell', shell },
+    host: e.host || undefined,
+    port: e.port ?? undefined,
+    user: e.user || undefined,
+    password: e.password || undefined,
+    database: e.database || undefined,
+  }
+}
+
+/**
+ * パネルに並べる接続先。並びは「動いているコンテナ → 保存した接続 → `.env` の候補」。
+ * `.env` の候補が保存した接続と同じなら、保存した側の行に `.env` のパスワードを持たせて 1 行にする
+ * （押したときにそのまま接続できるように。パスワードは保存しない）。
+ */
+export function buildDbCandidates(input: {
+  containers: { id: string; name: string; image: string; engine: DbEngine }[]
+  saved: DbSavedConnection[]
+  env: DbConnCandidate[]
+  shell: ShellType
+}): DbCandidate[] {
+  const out: DbCandidate[] = input.containers.map((c) => {
+    const target: DbTarget = { engine: c.engine, via: { kind: 'container', containerId: c.id } }
+    return { key: connectionKey(target), kind: 'container', label: c.name, detail: c.image, target }
+  })
+  const envByKey = new Map<string, { source: string; target: DbTarget }>()
+  for (const e of input.env) {
+    const target = envToTarget(e, input.shell)
+    const key = connectionKey(target)
+    if (!envByKey.has(key)) envByKey.set(key, { source: e.source, target })
+  }
+  for (const s of input.saved) {
+    const target = savedToTarget(s)
+    const key = connectionKey(target)
+    const env = envByKey.get(key)
+    if (env) {
+      target.password = env.target.password
+      envByKey.delete(key)
+    }
+    out.push({ key, kind: 'saved', label: describeShellTarget(target), detail: ENGINE_LABELS[s.engine], target })
+  }
+  for (const [key, { source, target }] of envByKey) {
+    out.push({ key, kind: 'env', label: describeShellTarget(target), detail: `.env ${source}`, target })
+  }
+  return out
+}
+
+const savedKey = (s: DbSavedConnection) => connectionKey(savedToTarget(s))
+
+/** 保存した接続を先頭へ足す（同じ接続は 1 つにまとめ、`DB_SAVED_MAX` を超えたら古いものを落とす）。 */
+export function upsertSaved(list: DbSavedConnection[], s: DbSavedConnection): DbSavedConnection[] {
+  const key = savedKey(s)
+  return [s, ...list.filter((x) => savedKey(x) !== key)].slice(0, DB_SAVED_MAX)
+}
+
+/** 保存した接続を消す。 */
+export function removeSaved(list: DbSavedConnection[], key: string): DbSavedConnection[] {
+  return list.filter((x) => savedKey(x) !== key)
+}
+
+/** エラーの文言。クライアントが無いときは、どこに何が無いかを言う。 */
+export function dbErrorText(error: unknown, target: DbTarget): string {
+  const missing = missingClients(error)
+  if (!missing) return String(error)
+  const via = target.via
+  const where =
+    via.kind === 'container' ? t('db.whereContainer') : t('db.whereShell', { shell: shellProfileLabel(via.shell) })
+  return t('db.clientNotFound', { clients: missing.join(' / '), where })
+}
+
+/** localStorage から読んだ値を検める。形の合わないものは落とす（手で書き換えられうる）。 */
+export function parseSavedConnections(raw: unknown): DbSavedConnection[] {
+  if (!Array.isArray(raw)) return []
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  return raw.flatMap((x): DbSavedConnection[] => {
+    if (typeof x !== 'object' || x === null) return []
+    const o = x as Record<string, unknown>
+    const engine = o.engine === 'mysql' || o.engine === 'postgres' ? o.engine : null
+    // シェルの妥当性は `shellId` と `shellFromId` の往復で見る（`stores/settings.ts` の `sanitizeShell`
+    // と同じ。判定を写すと、シェルの種類を増やしたときに片方だけ取り残される）。
+    // ただし `shellId` は distro の無い WSL を `wsl:undefined` にして往復を通すので、distro だけは先に見る。
+    const raw = o.shell as ShellType | undefined
+    const wslOk = raw?.kind !== 'wsl' || typeof raw.distro === 'string'
+    const shell = typeof raw?.kind === 'string' && wslOk ? shellFromId(shellId(raw)) : null
+    if (!engine || !shell) return []
+    const port = typeof o.port === 'number' && Number.isInteger(o.port) ? o.port : null
+    return [{ engine, shell, host: str(o.host), port, user: str(o.user), database: str(o.database) }]
+  })
 }
 
 /** Rust がクライアントを見つけられなかったときのエラーの接頭辞（`db::CLIENT_NOT_FOUND`）。 */

@@ -2,6 +2,9 @@
 paths:
   - "src-tauri/src/db/**"
   - "src/components/tabs/DbTab.vue"
+  - "src/components/panels/DbPanel.vue"
+  - "src/components/DbConnectDialog.vue"
+  - "src/stores/db.ts"
   - "src/lib/dbViewer.ts"
   - "src/types/db.ts"
   - "src/composables/useCsvTable.ts"
@@ -18,8 +21,9 @@ MySQL / PostgreSQL のテーブルの一覧・中身・スキーマを表で見�
 
 - **任意の SQL を受けない**（入力欄を持たない）。書き込み系（INSERT / UPDATE / DELETE / DDL）も無い
 - SSH 踏み台・リモートホスト（musql の領分）、MySQL / PostgreSQL 以外（SQLite など）
-- 接続情報の保存・管理画面。**パスワードはタブのコンポーネントの中にだけ持つ**（タブの欄・セッション・
-  設定に書かない）。DB のタブはセッションにも残さない（`snapshotSession` の対象外のまま）
+- 接続情報の管理画面（保存した接続はパネルの行から消せるだけ。下の「接続の保存」）。**パスワードは保存
+  しない**（localStorage・セッション・設定のどれにも書かない）。DB のタブはセッションにも残さない
+  （`snapshotSession` の対象外のまま）
 
 ## DB ドライバのクレートを入れない
 
@@ -124,13 +128,51 @@ DB の一覧・テーブルの一覧・スキーマ・中身の 4 種類。**外
 
 ## 入口と接続先の決め方
 
-- **入口は 2 つ**: Docker パネルの DB コンテナの行の「DB を見る」と、パレットの `openDbViewer`。
-  サイドバーのパネルは足していない（この 2 つで足りている）
+- **入口は DB パネル**（`components/panels/DbPanel.vue`。パレットの `panelDb` でも開く）。並べるのは
+  動いている DB のコンテナ・保存した接続・`.env` の候補で、末尾に「新しい接続…」。Docker パネルの DB
+  コンテナの行の「DB を見る」も残してあり、パネルの行と同じ `dbStore.open` を呼ぶ
+- **候補の組み立ては `lib/dbViewer.ts` の `buildDbCandidates` 1 つ**（`stores/db.ts` の `candidates`）。
+  パネルとダイアログは同じものを読み、別々に一覧を組まない。`.env` の候補と同じ接続先の保存した接続は
+  1 行にまとめ、その行に `.env` のパスワードを持たせる（押せばそのままつながる。保存はしない）
+- **同じ接続先の DB タブが既にあれば、前に出すだけ**（`tabStore.focusDbTab`。つなぎ直さない）。そのタブには
+  入れたパスワードや切り替えた DB が残っているので、行の接続先（パスワードを持たない）で差し替えると消える
+- **押したら、まずつないでみる**（`dbStore.open`）。つなげたら DB タブを開き、つなげなければ（パスワードが
+  要る・接続先が違う・クライアントが無い）エラーを添えて接続のダイアログ（`components/DbConnectDialog.vue`）を
+  画面の中央に出す。パネルの候補・ダイアログ・DB タブの「接続先を変える」・DB の切り替えが全部ここを通る
+  - **ダイアログを閉じたりエラーを書いたりするのは、そのダイアログから出した接続だけ**（`fromDialog`）。
+    行の接続を待つあいだに別のダイアログを開かれても、待っていた接続の結果がそちらへ混ざらない
+    （待っているあいだはパネルの「新しい接続…」も押せない）
+  - 保存した接続から開いたダイアログは、その接続のシェルで試し直す（`DbDialogState.shell`。プロジェクトの
+    シェルを後から変えていても、行が指していたシェルを使う）
+- **接続のフォームはダイアログ 1 つ。DB タブには置かない**（タブはつなげた接続先しか受け取らない。
+  `tabStore.addDbTab` / `retargetDbTab`）。タブの中にもフォームがあると、同じ欄と経路の選び方を 2 か所に
+  持つことになり、片方だけ直す事故が起きる。つないだときに読んだテーブルの一覧はタブへ渡して使い回す
+  （`takePrefetched`。同じ問い合わせを 2 回流さない）
 - DB のコンテナかは**イメージ名で決める**（`dbEngineOfImage`。リポジトリ名の最後の部分に `mysql` /
-  `mariadb` / `percona` / `postgres` / `postgis` / `timescaledb` / `pgvector`）。タブの接続先の一覧は
-  compose に属さないコンテナも出す（`dockerStore.containers` 全体から選ぶ）
-- ローカル / WSL はホスト・ポート・ユーザー・DB 名を入れる。「`.env` から読む」でプロジェクトのルートの
-  `.env` の `*DATABASE_URL` / `DB_URL` と Laravel の `DB_*` を候補にする（押したときだけ読む）
+  `mariadb` / `percona` / `postgres` / `postgis` / `timescaledb` / `pgvector`）。compose に属さない
+  コンテナも出す（`dockerStore.containers` 全体から選ぶ）
+- `.env` はプロジェクトのルートの `*DATABASE_URL` / `DB_URL` と Laravel の `DB_*` を読む。読むのはパネルを
+  開いたときと、ルートが変わったとき（`loadEnv`）
+
+## 接続の保存
+
+- **つなげたローカル / WSL の接続先を保存する**（`targetToSaved` / `upsertSaved`。新しいものが先頭、
+  `DB_SAVED_MAX` 件まで）。保存するのは種類・シェル・ホスト・ポート・ユーザー・DB 名で、**パスワードは
+  保存しない**（issue の方針）。パスワードの要る DB は、押すと接続に失敗してダイアログが出るので、そこで入れる。
+  入れたパスワードは DB タブの欄（`DbTab.target`）にだけ残り、タブはセッションに残さない
+- **DB タブの中で DB を切り替えただけでは保存しない**（`open` の `save: false`）。同一性に DB 名を含むので、
+  保存すると DB ごとに行が増え、上限で本当に保存した接続を押し出す
+- 読むときは形を検める（`parseSavedConnections`。シェルは `shellId` と `shellFromId` の往復で見る。
+  `stores/settings.ts` の `sanitizeShell` と同じ）
+- **コンテナの接続は保存しない**（動いているものを毎回一覧に出し、ユーザー名などはコンテナの環境変数から
+  読むので、覚えておくものが無い）
+- **置き場はプロジェクトごとの localStorage**（`pike:db-connections:<プロジェクト id>`。鍵は
+  `lib/projectStorage.ts` の表から作る）。接続先のホストやポートはマシンに依存するので、設定の同期にも
+  `project.json` にも入れない。プロジェクトの id の付け替え（#463）では表に載っているので一緒に移る
+- 接続先の同一性は `connectionKey`（パスワードを含めない。空の欄と未指定は同じ）。同じ接続先の DB タブが
+  今のプロジェクトにあれば、それを前に出す（`findDbTab`）
+- 保存した接続はパネルの行のごみ箱のボタンで消す（`forget`）。コンテナと `.env` の候補には出さない
+  （出所が別にあり、消しても次に読めば戻る）
 - macOS はホストのシェルで直に起こす。Homebrew の `/opt/homebrew/bin` は `augment_process_path` が PATH に
   足すが、keg-only の `libpq` / `mysql-client` は PATH に無いので「見つからない」になる。**macOS の実機では
   確かめていない**
