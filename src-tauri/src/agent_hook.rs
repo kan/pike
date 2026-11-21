@@ -54,7 +54,9 @@
 
 use crate::agent_usage::AgentId;
 use crate::fs::{file_name_of, parent_dir_of};
-use crate::types::{ShellConfig, bash_quote, cwd_under_root, epoch_secs, pike_config_dir_for};
+use crate::types::{
+    ShellConfig, bash_quote, cwd_under_root, epoch_secs, pike_config_dir_for, same_install,
+};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -573,7 +575,7 @@ fn record_usage(text: &str) {
     let mut store: UsageStore = read_store(&path);
     store
         .reports
-        .retain(|r| !(r.install == install && r.config_dir == config_dir));
+        .retain(|r| !(same_install(&r.install, &install) && r.config_dir == config_dir));
     store.reports.push(UsageReport {
         config_dir,
         install,
@@ -601,7 +603,7 @@ pub fn reported_usage(install: &str, config_dir: &str) -> Option<UsageReport> {
     read_store::<UsageStore>(&path)
         .reports
         .into_iter()
-        .find(|r| r.install == install && r.config_dir == config_dir)
+        .find(|r| same_install(&r.install, install) && r.config_dir == config_dir)
 }
 
 /// mod が `pike` を起こすときの実行ファイル（`agent_mod` が環境変数で渡す）。
@@ -793,7 +795,7 @@ fn record(agent: &str, cwd: &str, config_dir: &str, install: String) {
     let mut store: Store = read_store(&path);
     store
         .entries
-        .retain(|e| !(e.agent == agent && e.cwd == cwd && e.install == install));
+        .retain(|e| !(e.agent == agent && e.cwd == cwd && same_install(&e.install, &install)));
     store.entries.push(Declaration {
         agent: agent.to_owned(),
         cwd: cwd.to_owned(),
@@ -875,9 +877,40 @@ pub fn declared_config_dir(shell: &ShellConfig, project_root: &str) -> Option<St
         .map(|e| e.config_dir)
 }
 
-/// その申告がこのシェル・このプロジェクトのものか。
+/// そのインストールで申告された Claude の設定ディレクトリ（native パス）。プロジェクトを
+/// 問わず、重複を除いて新しい順（#633。セッションの一覧がアカウントを集めるのに使う）。
 ///
-/// `install` を持たない古い申告は、インストールを問わず cwd だけで突き合わせる。
+/// **古い申告を時刻で落とさない。** 使わなくなったアカウントでも、呼び出し側は「今
+/// セッションが動いているか」しか見ないので、残っていても見出しは出ない（費用は
+/// `sessions/` の `read_dir` 1 回）。ディレクトリごと消えたものは呼び出し側の実在の確認で
+/// 落ちる。件数は `MAX_ENTRIES` が抑えている。
+pub(crate) fn declared_config_dirs(install: &str) -> Vec<String> {
+    let Some(path) = store_path() else {
+        return Vec::new();
+    };
+    claude_dirs_of(read_store::<Store>(&path).entries, install)
+}
+
+/// [`declared_config_dirs`] の中身（ファイルを読まずに試せるよう分けてある）。インストールの比較は
+/// `same_install`（distro の名前の大小を区別しない）、設定ディレクトリの重複は綴りどおりに見る
+/// （Linux のパスは大小を区別する）。Windows のホストの大小違いを 1 つに畳むのは呼び出し側
+/// （`agent_live.rs` の `same_dir`）。
+fn claude_dirs_of(mut entries: Vec<Declaration>, install: &str) -> Vec<String> {
+    entries.sort_by_key(|e| std::cmp::Reverse(e.at));
+    let mut out: Vec<String> = Vec::new();
+    for e in entries {
+        if e.agent == AGENT_CLAUDE.as_str()
+            && same_install(&e.install, install)
+            && !out.contains(&e.config_dir)
+        {
+            out.push(e.config_dir);
+        }
+    }
+    out
+}
+
+/// その申告がこのシェル・このプロジェクトのものか。インストールの比較は `same_install`（distro の
+/// 名前の大小を区別しない）。`install` を持たない申告は一致しない（`Declaration::install` の doc）。
 fn matches_project(
     e: &Declaration,
     install: &str,
@@ -885,7 +918,7 @@ fn matches_project(
     project_root: &str,
 ) -> bool {
     e.agent == AGENT_CLAUDE.as_str()
-        && e.install == install
+        && same_install(&e.install, install)
         && cwd_under_root(shell, &e.cwd, project_root)
 }
 
@@ -1400,7 +1433,7 @@ fn looks_like_config_dir(read_path: &Path, name: &str) -> bool {
 /// 既定の `~/.claude` しか出てこない。実際に使っているのが `~/.claude-ai` なら、そこへ
 /// hook が入らないまま「登録済み」に見えて、申告は永久に届かない（ニワトリと卵）。
 /// アカウントごとに 1 つ登録する必要がある、というのは #299 の前提でもある。
-fn candidate_dirs(shell: &ShellConfig) -> Vec<(String, PathBuf)> {
+pub(crate) fn candidate_dirs(shell: &ShellConfig) -> Vec<(String, PathBuf)> {
     // ホームの解決（distro の中か、ホスト自身か）と UNC 化は `claude_usage::config` の
     // 持ち物。解決経路とここで別々に書くと、規則を変えたとき片方だけが直る。
     let Some((home_native, home_read)) = crate::claude_usage::config::shell_home(shell) else {
@@ -1686,6 +1719,32 @@ pub async fn agent_hook_uninstall(
 mod tests {
     use super::*;
     use crate::types::ShellConfig;
+
+    fn declaration(install: &str, config_dir: &str, at: u64) -> Declaration {
+        Declaration {
+            agent: AGENT_CLAUDE.as_str().to_owned(),
+            cwd: "/home/kan/pike".to_owned(),
+            config_dir: config_dir.to_owned(),
+            install: install.to_owned(),
+            at,
+        }
+    }
+
+    /// 申告の distro の綴りが一覧の環境と大小だけ違っても拾う（#633。ホームの外のアカウントは
+    /// 申告からしか分からない）。設定ディレクトリの綴りの違いは別のものとして残す。
+    #[test]
+    fn declared_dirs_ignore_distro_casing_but_not_path_casing() {
+        let entries = vec![
+            declaration("wsl:Ubuntu", "/opt/claude-work", 3),
+            declaration("wsl:ubuntu", "/opt/Claude-Work", 2),
+            declaration("wsl:Debian", "/opt/other", 1),
+            declaration("wsl:ubuntu", "/opt/claude-work", 0),
+        ];
+        assert_eq!(
+            claude_dirs_of(entries, "wsl:ubuntu"),
+            vec!["/opt/claude-work", "/opt/Claude-Work"]
+        );
+    }
 
     #[test]
     fn takes_the_config_dir_from_a_transcript_path() {

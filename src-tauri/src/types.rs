@@ -1295,8 +1295,9 @@ pub fn for_each_line(source: impl Read, mut on_line: impl FnMut(&str) -> bool) {
     }
 }
 
-/// 覚えておく stderr の上限。理由を当てるのに要るのは先頭だけ。
-const STDERR_KEEP_MAX: usize = 64 * 1024;
+/// 覚えておく stderr の上限。理由を当てるのに要るのは先頭だけ。DB ビューワのコンテナの exec
+/// （`db::exec_drain`）も同じ上限を使う。
+pub const STDERR_KEEP_MAX: usize = 64 * 1024;
 
 /// 子プロセスの stderr を**最後まで吸いながら**、先頭 `STDERR_KEEP_MAX` バイトだけ残す。
 ///
@@ -1610,6 +1611,14 @@ pub fn install_key(shell: &ShellConfig) -> String {
         ShellConfig::Unix { .. } => "host".to_owned(),
         _ => "windows".to_owned(),
     }
+}
+
+/// 2 つの `install_key` が同じインストールか。**WSL の distro の名前は大小を区別しない**
+/// （`wsl -d ubuntu` も `Ubuntu` に当たる。シェルプロファイル・プロジェクト・hook のコマンド行で
+/// 綴りが違いうる）。ホストの鍵は小文字の定数なので、全体を大小無視で比べてよい。
+/// 鍵そのもの（キャッシュの鍵）は変えない。
+pub fn same_install(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
 }
 
 /// Resolve (and cache per distro) a WSL distro's `$HOME`, as its native Linux path.

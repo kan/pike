@@ -14,7 +14,7 @@
  * DOM のセルの位置（`#` 列が 0）から直すのは、DOM を読む境目（`useCsvSelection`）の 1 か所だけ。
  *
  * ページ送りと並べ替えのボタンは `v-html` の中に描き、`data-csv-*` の印でクリックを受ける
- * （EditorTab の `handleCsvControls`）。
+ * （`useCsvTable` の `handleControls`）。
  */
 import { t } from '../i18n'
 import { displayWidth } from './displayWidth'
@@ -28,12 +28,17 @@ import { escapeHtml, splitDelimited } from './text'
 export const CSV_PAGE_SIZES = [100, 500, 1000, 5000] as const
 export const CSV_PAGE_SIZE_DEFAULT = 1000
 
-export interface CsvRow {
+/**
+ * 表の 1 行。ファイルの CSV は**セルに分けないまま**（`line`）、DB ビューワ（#632）の結果は
+ * Rust が分けて返したセル（`cells`）をそのまま持つ。読むのはどちらも `cellsOf` を通す。
+ *
+ * **`null` は DB の NULL**（ファイルの CSV からは出てこない）。描くときは `csv-null` の class の
+ * 空のセル（文字は CSS が描く）、並べ替えでは空のセルと同じく末尾、コピーでは空の欄にする。
+ */
+export type CsvRow = {
   /** ファイルの中での行番号（見出しを除いて 1 から）。並べ替えても変わらない。 */
   num: number
-  /** セルに分ける前の 1 行。分けるのは `cellsOf`。 */
-  line: string
-}
+} & ({ /** セルに分ける前の 1 行。 */ line: string } | { cells: (string | null)[] })
 
 export interface CsvData {
   headers: string[]
@@ -65,8 +70,8 @@ export function parseCsv(lines: Iterable<string>, delimiter: string): CsvData {
   return { headers: headers ?? [], rows, delimiter }
 }
 
-export function cellsOf(row: CsvRow, delimiter: string): string[] {
-  return splitDelimited(row.line, delimiter)
+export function cellsOf(row: CsvRow, delimiter: string): (string | null)[] {
+  return 'cells' in row ? row.cells : splitDelimited(row.line, delimiter)
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -91,6 +96,7 @@ function asNumber(s: string): number | null {
 export function sortCsvRows(data: CsvData, sort: CsvSort): CsvRow[] {
   const sign = sort.dir === 'asc' ? 1 : -1
   const keyed = data.rows.map((row) => {
+    // NULL（DB）は空のセルと同じ扱い。
     const text = cellsOf(row, data.delimiter)[sort.col] ?? ''
     return { row, text, empty: text.trim() === '', num: asNumber(text) }
   })
@@ -167,7 +173,9 @@ export function renderCsvPage(
   html += '</tr></thead><tbody>'
   for (const row of rows.slice(bounds.offset, bounds.offset + bounds.pageSize)) {
     html += `<tr><td class="csv-row-num">${row.num}</td>`
-    for (const c of cellsOf(row, data.delimiter)) html += `<td>${escapeHtml(c)}</td>`
+    for (const c of cellsOf(row, data.delimiter)) {
+      html += c === null ? '<td class="csv-null"></td>' : `<td>${escapeHtml(c)}</td>`
+    }
     html += '</tr>'
   }
   html += '</tbody></table>'

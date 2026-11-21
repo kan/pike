@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 今動いている Claude Code のセッションの右クリックメニュー（#625）。サイドバーのパネル
+ * 今動いているエージェント（Claude Code / Codex）のセッションの右クリックメニュー（#625 / #633）。サイドバーのパネル
  * （`AgentSessionsPanel.vue`）と詳細のタブ（`AgentSessionsTab.vue`）が同じものを使う。
  * 作りは issue パネルの右クリックと同じ（測ってから置く・閉じてから実行。`IssuesPanel.vue`）。
  * 操作の実体はストア（`stores/liveSessions.ts`）にあり、ここは並べて呼ぶだけ。

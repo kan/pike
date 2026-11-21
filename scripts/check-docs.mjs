@@ -118,7 +118,14 @@ const EXTERNAL_NAMES = [
   'IVirtualDesktopManagerInternal', // Windows の非公開 COM（採らなかった選択肢として project.md が出す）
   'MERGE_MSG', // git が書く状態ファイル（Pike は読まない）
   'ReadDirectoryChangesW', // Win32（notify クレート経由）
+  'OpenFileDialog', // WinForms（ダイアログを PowerShell で出していたころの話として platform.md が出す、#638）
+  'SelectedPath', // WinForms の FolderBrowserDialog（初期位置の扱いを合わせた相手として platform.md が出す、#638）
+  'SHBrowseForFolder', // Win32 の旧式のフォルダ選択（使わない理由として platform.md が出す、#271）
   'SSH_ASKPASS_REQUIRE', // OpenSSH 8.4+ の環境変数（採らなかった選択肢として git.md が出す）
+  'task_started', // Codex の rollout のイベント名（ターンの始まり。codex_usage/live.rs が読む、#633）
+  'task_complete', // 同上（ターンの終わり）
+  'turn_aborted', // 同上（中断したターン）
+  'mysql_async', // 入れなかった DB ドライバのクレート（採らなかった選択肢として db.md が出す、#632）
   'expiresAt', // Claude Code の .credentials.json のキー（Pike は読まない。#381 の調査の記録）
   'refreshTokenExpiresAt', // 同上
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）

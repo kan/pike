@@ -10,6 +10,7 @@ mod appmenu {
 }
 /// エージェントの hook からの申告（#299）。`main.rs` が Tauri より前に呼ぶので pub。
 pub mod agent_hook;
+mod agent_live;
 mod agent_mod;
 mod agent_sessions;
 mod agent_usage;
@@ -24,7 +25,11 @@ mod ci;
 mod claude_usage;
 mod cli;
 mod codex_usage;
+mod db;
 mod diagnostics;
+/// Windows のファイル / フォルダ選択ダイアログ（#638）。入口は下の `mod dialog`。
+#[cfg(windows)]
+mod dialog_win;
 mod docker;
 /// タブバーへの OS ファイルドロップの実パス解決は WebView2 の COM API に依存する
 /// （#見出し「タブバーへの OS ファイルドロップ」）。macOS の WKWebView には相当する
@@ -1375,13 +1380,51 @@ async fn open_url(url: String) -> Result<(), String> {
 /// それぞれ macOS / Windows / それ以外の 3 分岐を持ち、cfg 属性が 13 個あった。
 /// プラットフォームを増やすときに 3 つの本体を全部直すことになる。
 ///
-/// **キャンセルの見分け方が OS で違う**: PowerShell 版は ShowDialog が OK 以外だと
-/// 空文字を出し、`osascript` は終了コード 1 で終わる。`spawn` がどちらも `None` に畳む。
+/// **キャンセルはどの OS でも `Ok(None)` に畳む**: Windows はシェルのダイアログの
+/// `ERROR_CANCELLED`（`dialog_win`）、`osascript` は終了コード 1（`spawn`）。
+///
+/// `window` はダイアログを出したウィンドウ。Windows ではそれを owner にして前面に出す
+/// （#638）。macOS の `osascript` は別プロセスなので使わない。
 mod dialog {
+    use tauri::Window;
+
+    /// Windows はシェルのダイアログを Pike の中で直に出す（`dialog_win`、#638）。
+    /// PowerShell + WinForms で出していたころは、表示まで 2 秒前後かかり前面にも出なかった。
+    #[cfg(windows)]
+    fn owner_of(window: &Window) -> crate::dialog_win::Owner {
+        super::win32_hwnd(window, "dialog").map(|h| h.0 as isize)
+    }
+
+    /// `initial` はダイアログの初期位置（#271）。WSL プロジェクトでは
+    /// `wsl.localhost` の UNC を渡すので、そのまま WSL の中から選べる。
+    #[cfg(windows)]
+    pub async fn folder(
+        window: &Window,
+        initial: Option<String>,
+    ) -> Result<Option<String>, String> {
+        crate::dialog_win::folder(owner_of(window), initial).await
+    }
+
+    /// `extensions` が空なら絞らない（#410 の「ファイルを開く」）。`initial` は初期位置。
+    #[cfg(windows)]
+    pub async fn open(
+        window: &Window,
+        extensions: Vec<String>,
+        initial: Option<String>,
+    ) -> Result<Option<String>, String> {
+        crate::dialog_win::open(owner_of(window), extensions, initial).await
+    }
+
+    #[cfg(windows)]
+    pub async fn save(
+        window: &Window,
+        default_name: Option<String>,
+    ) -> Result<Option<String>, String> {
+        crate::dialog_win::save(owner_of(window), default_name).await
+    }
+
     /// ダイアログを外部プログラムで出し、選ばれたパスを返す。
-    ///
-    /// Rust のダイアログ crate を使わず OS 付属のものを叩くのは、元々そうなっていたから。
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(target_os = "macos")]
     async fn spawn(program: String, args: Vec<String>) -> Result<Option<String>, String> {
         tokio::task::spawn_blocking(move || {
             let output = crate::types::silent_command(&program)
@@ -1393,100 +1436,12 @@ mod dialog {
             if !output.status.success() {
                 return Ok(None);
             }
-            // UTF-8 で読めるのは、PowerShell 側で出力の文字コードを固定しているから
-            // （`powershell`）。osascript は元から UTF-8。
+            // osascript は UTF-8 で書く。
             let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             Ok(if path.is_empty() { None } else { Some(path) })
         })
         .await
         .map_err(|e| e.to_string())?
-    }
-
-    /// WinForms のダイアログ。`script` は `$f = New-Object ...` の部分。
-    ///
-    /// **pwsh があればそちらで出す**（#271）。PowerShell 7 は .NET 5+ なので、同じ
-    /// `FolderBrowserDialog` がモダンなダイアログになる（アドレス欄でパスを打て、
-    /// ナビゲーションペインに WSL の「Linux」が出る）。`powershell.exe` の .NET Framework
-    /// は旧式の「フォルダーの参照」ツリーで、UNC を打ち込む手段が無い。
-    #[cfg(windows)]
-    async fn powershell(script: String) -> Result<Option<String>, String> {
-        // **出力を UTF-8 に固定する**（BOM なし）。既定のままだと日本語のパスが化ける
-        // （理由は `.claude/rules/platform.md` の「ダイアログ」）。
-        let cmd = format!(
-            "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
-             Add-Type -AssemblyName System.Windows.Forms; {script}"
-        );
-        // pwsh の探索は PATH を辿る stat の連なりなので、実行と同じくブロッキング側で行う
-        // （`spawn` が `spawn_blocking` を使っているのと同じ理由。ここで直に呼ぶと、
-        // ダイアログを開くたびに tokio のワーカーが PTY の出力ごと止まる）。
-        let program = tokio::task::spawn_blocking(|| {
-            crate::pty::find_pwsh_path().unwrap_or_else(|| "powershell.exe".to_owned())
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-        spawn(program, vec!["-NoProfile".into(), "-Command".into(), cmd]).await
-    }
-
-    /// PowerShell のリテラルに埋める（単引用符の中では引用符を重ねるのが唯一の逃げ方）。
-    #[cfg(windows)]
-    fn ps_quote(value: &str) -> String {
-        format!("'{}'", value.replace('\'', "''"))
-    }
-
-    /// ダイアログの初期位置を `$f.<prop>` に入れる文（#271 / #410）。無ければ空文字列。
-    #[cfg(windows)]
-    fn ps_seed(prop: &str, initial: Option<String>) -> String {
-        initial
-            .filter(|p| !p.is_empty())
-            .map(|p| format!("$f.{prop} = {};", ps_quote(&p)))
-            .unwrap_or_default()
-    }
-
-    /// `initial` はダイアログの初期位置（#271）。WSL プロジェクトでは
-    /// `wsl.localhost` の UNC を渡すので、そのまま WSL の中から選べる。
-    #[cfg(windows)]
-    pub async fn folder(initial: Option<String>) -> Result<Option<String>, String> {
-        let seed = ps_seed("SelectedPath", initial);
-        powershell(format!(
-            "$f = New-Object System.Windows.Forms.FolderBrowserDialog; {seed} if($f.ShowDialog() -eq 'OK'){{$f.SelectedPath}}"
-        ))
-        .await
-    }
-
-    /// `extensions` が空なら絞らない（#410 の「ファイルを開く」）。`initial` は初期位置。
-    #[cfg(windows)]
-    pub async fn open(
-        extensions: &[String],
-        initial: Option<String>,
-    ) -> Result<Option<String>, String> {
-        // Filter syntax is `description|patterns`; the patterns read fine as their
-        // own description.
-        let filter = if extensions.is_empty() {
-            String::new()
-        } else {
-            let patterns = extensions
-                .iter()
-                .map(|e| format!("*.{e}"))
-                .collect::<Vec<_>>()
-                .join(";");
-            format!("$f.Filter = '{patterns}|{patterns}';")
-        };
-        let seed = ps_seed("InitialDirectory", initial);
-        powershell(format!(
-            "$f = New-Object System.Windows.Forms.OpenFileDialog; {filter} {seed} if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
-        ))
-        .await
-    }
-
-    #[cfg(windows)]
-    pub async fn save(default_name: Option<String>) -> Result<Option<String>, String> {
-        // PowerShell single-quoted strings only interpret '' as an escaped quote;
-        // no other character ($, `, ;, ...) is special inside them.
-        let name = default_name.unwrap_or_default().replace('\'', "''");
-        powershell(format!(
-            "$f = New-Object System.Windows.Forms.SaveFileDialog; $f.FileName = '{name}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
-        ))
-        .await
     }
 
     /// `osascript` の `choose ...` は AppleScript のエイリアスを返すので、スクリプト側で
@@ -1522,7 +1477,10 @@ mod dialog {
     }
 
     #[cfg(target_os = "macos")]
-    pub async fn folder(initial: Option<String>) -> Result<Option<String>, String> {
+    pub async fn folder(
+        _window: &Window,
+        initial: Option<String>,
+    ) -> Result<Option<String>, String> {
         let at = default_location(initial);
         osascript(format!("POSIX path of (choose folder{at})")).await
     }
@@ -1530,7 +1488,8 @@ mod dialog {
     /// `extensions` が空なら絞らない（#410）。
     #[cfg(target_os = "macos")]
     pub async fn open(
-        extensions: &[String],
+        _window: &Window,
+        extensions: Vec<String>,
         initial: Option<String>,
     ) -> Result<Option<String>, String> {
         // `choose file of type` は拡張子と UTI のどちらも受ける。呼び出し側で英数字だけに
@@ -1550,7 +1509,10 @@ mod dialog {
     }
 
     #[cfg(target_os = "macos")]
-    pub async fn save(default_name: Option<String>) -> Result<Option<String>, String> {
+    pub async fn save(
+        _window: &Window,
+        default_name: Option<String>,
+    ) -> Result<Option<String>, String> {
         let name = applescript_quote(&default_name.unwrap_or_default());
         osascript(format!(
             "POSIX path of (choose file name default name \"{name}\")"
@@ -1570,39 +1532,49 @@ mod dialog {
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
-    pub async fn folder(_initial: Option<String>) -> Result<Option<String>, String> {
-        unsupported()
-    }
-
-    #[cfg(not(any(windows, target_os = "macos")))]
-    pub async fn open(
-        _extensions: &[String],
+    pub async fn folder(
+        _window: &Window,
         _initial: Option<String>,
     ) -> Result<Option<String>, String> {
         unsupported()
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
-    pub async fn save(_default_name: Option<String>) -> Result<Option<String>, String> {
+    pub async fn open(
+        _window: &Window,
+        _extensions: Vec<String>,
+        _initial: Option<String>,
+    ) -> Result<Option<String>, String> {
+        unsupported()
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    pub async fn save(
+        _window: &Window,
+        _default_name: Option<String>,
+    ) -> Result<Option<String>, String> {
         unsupported()
     }
 }
 
+/// `window` は呼んだウィンドウ（Tauri が渡す）。Windows ではダイアログの owner になる（#638）。
 #[tauri::command]
-async fn pick_folder(initial: Option<String>) -> Result<Option<String>, String> {
-    dialog::folder(initial).await
+async fn pick_folder(window: Window, initial: Option<String>) -> Result<Option<String>, String> {
+    dialog::folder(&window, initial).await
 }
 
 /// Open-file dialog restricted to the given extensions (#241). An empty list
 /// means any file (#410); `initial` is the directory it starts in.
 ///
-/// The extensions end up inside a shell/AppleScript command line, so they are
-/// checked here rather than trusted: the front end decides which formats to
-/// offer, but this is what builds the process arguments. A non-empty list that
+/// The extensions end up inside an AppleScript command line on macOS (and in
+/// the dialog's filter pattern on Windows), so they are checked here rather
+/// than trusted: the front end decides which formats to offer, but this is
+/// what builds the arguments. A non-empty list that
 /// filters down to nothing is still an error — widening it to "any file"
 /// would silently drop the caller's restriction.
 #[tauri::command]
 async fn pick_open_file(
+    window: Window,
     extensions: Vec<String>,
     initial: Option<String>,
 ) -> Result<Option<String>, String> {
@@ -1614,12 +1586,15 @@ async fn pick_open_file(
     if usable.is_empty() && !extensions.is_empty() {
         return Err("no usable extensions".into());
     }
-    dialog::open(&usable, initial).await
+    dialog::open(&window, usable, initial).await
 }
 
 #[tauri::command]
-async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, String> {
-    dialog::save(default_name).await
+async fn pick_save_file(
+    window: Window,
+    default_name: Option<String>,
+) -> Result<Option<String>, String> {
+    dialog::save(&window, default_name).await
 }
 
 /// 起動を続けられない理由を出して終わる。**Tauri が立ち上がる前**なので、ウィンドウも
@@ -2153,6 +2128,11 @@ pub fn run() {
             docker::tunnel::docker_tunnel_create,
             docker::tunnel::docker_tunnel_stop,
             docker::tunnel::docker_container_ports,
+            db::db_container_defaults,
+            db::db_probe,
+            db::db_schema,
+            db::db_rows,
+            db::db_dump,
             search::search_detect_backend,
             search::search_execute,
             search::search_replace_apply,
@@ -2226,8 +2206,8 @@ pub fn run() {
             font::font_list_monospace,
             font::font_list_all,
             agent_sessions::agent_sessions,
-            claude_usage::live::agent_live_sessions,
-            claude_usage::live::agent_live_session_resume_dir,
+            agent_live::agent_live_sessions,
+            agent_live::agent_live_session_resume_dir,
         ]))
         .build(context)
         .expect("error while running tauri application")

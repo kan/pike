@@ -1,0 +1,191 @@
+/* CSV / TSV の表の見た目（エディタの CSV プレビューと DB ビューワ #632 が共有する）。表は
+   `lib/csvPreview.ts` の `renderCsvPage` が `v-html` で描き、器に `csv-preview` の class を付ける。
+
+   **読み込むのは `composables/useCsvTable.ts`**（表の操作と一緒に来る）。起動時の `theme.css` に
+   置くと、表を一度も開かないセッションでも毎回読むことになる。
+
+   **置き場の寸法（`flex` / `overflow`）はここに書かない。** 寸法は置いた側が決める
+   （`assets/preview.css` と同じ取り決め）。 */
+.csv-preview table {
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.csv-preview th,
+.csv-preview td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.csv-preview th {
+  background: var(--bg-tertiary);
+  color: var(--text-active);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.csv-preview tbody tr:hover {
+  background: var(--tab-hover-bg);
+}
+
+.csv-preview .csv-row-num {
+  color: var(--text-secondary);
+  text-align: right;
+  min-width: 40px;
+  font-size: 11px;
+}
+
+/* DB の NULL（`lib/csvPreview.ts` の `CsvRow` の `null` のセル）。文字列の `NULL` と見分けられるように淡色の斜体で、
+   文字は `::after` で描く（セルの中身にしないので、文字選択のコピーには入らない）。 */
+.csv-preview .csv-null::after {
+  content: 'NULL';
+  color: var(--text-secondary);
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* ページ送りと表示件数（`lib/csvPreview.ts` の `pager`）。表の上と下に同じものが出る。 */
+.csv-preview .csv-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.csv-preview .csv-pager button {
+  min-width: 24px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.csv-preview .csv-pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 幅は `min-width`（いちばん長い表記ぶん、`pager` が付ける）で取り、数字は等幅にして揃える。 */
+.csv-preview .csv-pager-info {
+  display: inline-block;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.csv-preview .csv-pager-size {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.csv-preview .csv-pager-size select {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.csv-preview .csv-pager-hint {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+
+/* 巨大なファイルの一部だけを読んでいるときの案内（`lib/csvPreview.ts` の `CsvPartialLoad`）。 */
+.csv-preview .csv-partial {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.csv-preview .csv-partial button {
+  padding: 1px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.csv-preview .csv-partial button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 見出しの並べ替えボタン。向きの記号は `data-dir` で出す（文字にするとセルのコピーに混ざる）。 */
+.csv-preview .csv-sort {
+  margin-left: 4px;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.csv-preview .csv-sort::after {
+  content: '⇅';
+}
+
+.csv-preview .csv-sort[data-dir='asc'],
+.csv-preview .csv-sort[data-dir='desc'] {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.csv-preview .csv-sort[data-dir='asc']::after {
+  content: '▲';
+}
+
+.csv-preview .csv-sort[data-dir='desc']::after {
+  content: '▼';
+}
+
+.csv-preview th:hover .csv-sort {
+  opacity: 1;
+}
+
+/* 列見出しと行番号は選択の入口（`useCsvSelection`）。文字選択にならないようにする。 */
+.csv-preview th,
+.csv-preview .csv-row-num {
+  cursor: pointer;
+  user-select: none;
+}
+
+.csv-preview th:hover,
+.csv-preview .csv-row-num:hover {
+  color: var(--accent);
+}
+
+/* 選択した列・行・全体。`table.csv-sel` は全体、`tr.csv-sel` は行、セルの `csv-sel` は列。 */
+.csv-preview table.csv-sel td,
+.csv-preview table.csv-sel th,
+.csv-preview tr.csv-sel > td,
+.csv-preview td.csv-sel,
+.csv-preview th.csv-sel {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* 折り返し ON のとき（エディタのプレビュー #367）でも、見出しは並べ替えのボタンと向きの記号を
+   抱えるので、名前ごと割らない。 */
+.csv-preview.wrap th {
+  white-space: nowrap;
+}

@@ -329,6 +329,7 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     panelGit: () => togglePanel('git'),
     panelSearch: openSearch,
     panelDocker: () => togglePanel('docker'),
+    panelDb: () => togglePanel('db'),
     panelTasks: () => togglePanel('tasks'),
     panelOutline: () => togglePanel('outline'),
     panelDiagnostics: () => togglePanel('diagnostics'),

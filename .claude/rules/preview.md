@@ -63,7 +63,7 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **ドロップされたファイルは `resolveDroppedPaths` で実パスに戻してから**扱う（タブバーのドロップと同じ仕組み）。戻せなければ持っているバイトで書く。実パスが取れれば上の「プロジェクト内ならリンクだけ」もそのまま効く
   - ファイル選択ダイアログは Windows のものなので、WSL プロジェクトの中のファイルは UNC 形で返る。`wslUncToNative` で native に直すが、**distro が一致するときだけ**採用する
   - **書き込みは `useImagePaste` の `saveFileTo` を通す**。あれが `MAX_UPLOAD_SIZE` の番人で、素の `fsWriteFileBase64` を直接呼ぶと上限なしのファイルが base64 で IPC を渡る
-  - `pick_open_file` の拡張子は **Rust 側で英数字だけに絞ってから** PowerShell のフィルタ文字列に埋める（コマンドラインを組み立てる側が検証する）。ダイアログ 3 種の共通部分は `lib.rs` の `dialog` モジュール（`dialog::powershell` が WinForms 側、`dialog::osascript` が macOS 側）
+  - `pick_open_file` の拡張子は **Rust 側で英数字だけに絞ってから** ダイアログのフィルタ（Windows）と AppleScript のコマンドライン（macOS）に埋める（引数を組み立てる側が検証する）。ダイアログ 3 種の入口は `lib.rs` の `dialog` モジュールで、Windows の実体は `dialog_win.rs`（#638）、macOS は `dialog::osascript`。仕組みは `platform.md` の「ダイアログ」
   - 貼り付けとドロップは `EditorView.domEventHandlers` を **markdown の compartment に載せる**ので、read-only タブと非 Markdown では素通りする。画像以外は `false` を返して CodeMirror の既定に任せる（`pasteURLAsLink` を潰さない）。ドロップ位置は `posAtCoords` でカーソルを移してから挿入する
   - **複数枚は 1 トランザクションで書く**。1 枚ずつ dispatch すると、直前の挿入が alt テキストを選択したままなので次がその中に入る（`![![b](b.png)](a.png)` になる）
   - **ファイルツリーからのドロップは `text/plain` を読む**が、パスに見えるか（`isAbsolutePath`）を確かめてから信じる。あのスロットは 4 つのパネルが別々の語彙で使っていて、他アプリから `foo.png` という文字列をドラッグしただけでも届く
@@ -130,8 +130,9 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **行はセルに分けないまま持つ**（`CsvRow.line`、分けるのは `cellsOf`）。本文は打鍵が止まるたびに読み直すので、全行をセルに分けると数 MB の CSV で編集が重くなる。分けるのは描くページの行・並べ替えの列・全体や列のコピーのときだけ
   - 表示件数は全タブ共通の設定なので、変わったら**どのタブもページを先頭に戻す**（同じページ番号が別の行を指すため）
   - **列の番号は `#` 列を数えない 0 始まりで統一する**（並べ替え・選択・右クリックのメニュー）。DOM のセルの位置（`#` 列が 0）から直すのは `useCsvSelection` の `domCol` だけ。表示件数の選択肢と既定値は `lib/csvPreview.ts` が持ち、設定ストアはそれを読んで検証する（`SHORTCUT_PRESETS` と同じ向き）
-  - **読み込み（`parseCsv`）・並べ替え（`sortCsvRows`）・1 ページの HTML（`renderCsvPage`）を分けてある**。EditorTab の computed も `csvData` → `csvRows` → `previewHtml` の 3 段で、ページを動かしても本文を読み直さない
-  - ページ送り・並べ替えのボタンは `v-html` の中に描き、`data-csv-*` の印で受ける（`handleCsvControls` / `onPreviewChange`）。**見出しのクリックは列の選択**なので、並べ替えはその中の小さなボタンと右クリックのメニュー。向きの記号は CSS の `::after`（文字にすると見出しのセルのコピーに混ざる）
+  - **読み込み（`parseCsv`）・並べ替え（`sortCsvRows`）・1 ページの HTML（`renderCsvPage`）を分けてある**。EditorTab の computed も `csvData` → `useCsvTable` の `rows` → `previewHtml` の 3 段で、ページを動かしても本文を読み直さない
+  - **ページ・並べ替え・選択・キーの状態と操作は `composables/useCsvTable.ts` に置き、DB ビューワ（#632、`db.md`）と共有する。** 見た目は `assets/csvTable.css`（表の器に `csv-preview` の class を付ける。寸法は置いた側が決める）。EditorTab が持つのは本文から表を読む `csvData`・部分読み込みの案内・右クリックのメニューだけ
+  - ページ送り・並べ替えのボタンは `v-html` の中に描き、`data-csv-*` の印で受ける（`useCsvTable` の `handleControls` / `handleChange`）。**見出しのクリックは列の選択**なので、並べ替えはその中の小さなボタンと右クリックのメニュー。向きの記号は CSS の `::after`（文字にすると見出しのセルのコピーに混ざる）
   - 並べ替えは空のセルを向きに関係なく末尾、数として読めるセルは数として比べる。並べ替えはタブごとで保存しない
   - **選択のコピーは描いた表ではなく読み込んだデータから組み立てる**（`useCsvSelection` の `source`）。全体と列は全ページぶん、行はページの中の位置。ページ・並べ方・件数が変わったら選択を捨てる。**全ページぶんをコピーすることはページの帯に書いてある**（`csv.copyAllPagesHint`）。見えている範囲とコピーされる範囲が食い違うため
   - **列・行の選択は `composables/useCsvSelection.ts` が自前で持つ**（ブラウザの文字選択は文書の並びに沿った 1 本の範囲で、1 列だけを選べない）。印は class で付け、`v-html` で作り直されたら `paint` で付け直す。コピーは `lib/text.ts` の `joinTsv`

@@ -12,6 +12,8 @@ paths:
   - "src/composables/useAgentMenu.ts"
   - "src/components/AgentSessionsMenu.vue"
   - "src-tauri/src/claude_usage/live.rs"
+  - "src-tauri/src/agent_live.rs"
+  - "src-tauri/src/codex_usage/live.rs"
   - "src/lib/liveSessions.ts"
   - "src/lib/liveSessionIcons.ts"
   - "src/stores/liveSessions.ts"
@@ -70,21 +72,116 @@ paths:
   （再開できないものを並べない）
 - **git を 1 回起こす**。読むのはメニューを開いたときだけ、という前提（`agent_sessions.rs` の
   doc）の上に乗っている。ポーリングへ移すならここが費用になる
-- 設定ディレクトリは一覧を引いた場所で解決したもの 1 つを使う（`config::resolve`）。worktree
+- 設定ディレクトリは一覧を引いた場所で解決したもの 1 つを使う（`config::resolve`。再開のメニューの話で、
+  今動いているセッションの一覧は下の #633 の節のとおり複数のアカウントを読む）。worktree
   ごとに `CLAUDE_CONFIG_DIR` を変えている構成は拾わない
 - 他の 3 つ（Codex / Copilot / opencode）は対象外（#432 は Claude に絞った）。worktree で
   動かしたセッションが一覧に出るか、再開が場所に依るかは**未確認**
 
-## 今動いているセッションの一覧（#625）
+## 今動いているセッションの一覧（#625 / #633）
 
-サイドバーのセッションのパネル（簡易）と、そこから開く詳細のタブ。**判断の正本は
-`claude_usage/live.rs` のモジュール doc**（出所・生存の照合・題の読み方）と `stores/liveSessions.ts`
-の `jump` の doc（飛び先の 3 段）。ここには規範だけ置く。
+サイドバーのセッションのパネル（簡易）と、そこから開く詳細のタブ。**判断の正本は 3 つのモジュール
+doc**（`agent_live.rs` ＝どの環境とアカウントを読むか、`claude_usage/live.rs` ＝ Claude の出所・
+生存の照合・題、`codex_usage/live.rs` ＝ Codex の状態の推し方）と `stores/liveSessions.ts` の `jump` の
+doc（飛び先の 3 段）。ここには規範だけ置く。
 
-- **出所は設定ディレクトリの `sessions/<pid>.json`**（Claude Code が状態を書き直す。`status` は
-  `busy` / `idle` / `waiting`）。**読むのは今のプロジェクトで解決した設定ディレクトリ 1 つ**
-  （利用者の判断）。他のアカウントのセッションは出さない。対象は Claude だけ。**解決は
-  `activeRoot` で行う**（使用量と同じ。worktree を切り替えたら一覧を捨てて読み直す。`scope`）
+- **一覧はアカウント（エージェント × 環境 × 設定ディレクトリ）ごとの配列で返る**（#633。
+  `agent_live_sessions` → `LiveSessionList[]`）。**今のプロジェクトのアカウントだけは空でも返す。ほかは
+  セッションがあるときだけ返す。** 画面の並びは Rust の順ではなく、下の `stableLiveOrder` で決める。
+  フロントは一覧が 1 つなら見出しを出さない
+  （`showHeadings`）。アカウントが 1 つで Codex を使っていなければ、見出しの無い 1 つの一覧になる。
+  これはこの 2 つの組み合わせで保っている。片方だけ崩さないこと
+- **パネルの折り畳みと、詳細のタブのアカウントの切り替えは、見出しを出すとき（`showHeadings`）だけ**
+  （#633。一覧が 1 つなら、どちらも出さない）。どちらもアカウントを `liveListKey`（エージェント・環境・
+  設定ディレクトリ）で覚え、localStorage に置く（`lib/liveSessions.ts` の `LIVE_COLLAPSED_KEY` /
+  `LIVE_TAB_ACCOUNT_KEY`）
+  - **同期しない**。鍵に設定ディレクトリのパスが入り、他のマシンでは当たらないため。プロジェクト単位の
+    値でもないので、`lib/projectStorage.ts` の表にも載せない
+  - **折り畳みは、書く直前に読み直し、なりたい状態を渡す**（`withCollapsedKey`）。別のウィンドウの
+    パネルが畳んだぶんを古い写しで消さず、切り替えにすると押した本人の見ている向きと逆になりうる。
+    別のウィンドウの変化は `storage` イベントで写す（写さないと、次に押したときに押していない見出しが
+    まとめて開閉する）。使わなくなったアカウントの鍵が溜まらないよう、50 件で古いものから捨てる
+  - 詳細のタブの見出しの横の要約は、出しているアカウントだけを数える
+  - **選んでいたアカウントが一覧から消えたら「すべて」を出すが、保存した値は消さない**（`selectedSections`。
+    そのアカウントでまたセッションが動けば戻る）
+  - サイドバーのアイコンの返答待ちの件数は、折り畳みや切り替えに関わらず全アカウントの合計
+- **アカウントの並びはフロントで固定の順に決め直す**（`lib/liveSessions.ts` の `stableLiveOrder`）。今の
+  プロジェクトのアカウントを先頭に、残りは `liveListKey` の順。**Rust が返す順をそのまま使わないこと**: 申告の
+  新しい順（`declared_config_dirs`。`SessionStart` のたびに書き直される）を含み、今のプロジェクト以外の
+  アカウントはセッションがあるときだけ現れるので、別のアカウントでセッションを始めるたびに並びが入れ替わる
+  - **パネルでは、畳んだアカウントを開いているものの下にまとめる**（`panelLiveOrder`。どちらの中も同じ固定の
+    順）。今のプロジェクトのアカウントも、畳まれていれば下へ回る。詳細のタブの切り替えのボタンも同じ固定の順
+- **見出しのエージェントと環境はアイコンで出す**（`liveListHeading` の部品を `components/LiveAccountHeading.vue`
+  が描く。パネルの見出し・詳細のタブの見出し・切り替えのボタンで共有する）。エージェントは `lib/agentIcons.ts` の
+  `AGENT_ICONS`、環境は `LiveAccountHeading.vue` の `placeIcon`（WSL は `wslLogoOf` → `WSL_LOGOS` で distro のロゴ、知らない
+  distro は Tux。Windows は 4 つの四角）。文字は `aria-label` と、置いた側の器の `title` に持たせる。
+  **アカウントを見分ける部分（メールアドレス、設定ディレクトリの名前）は文字のまま**。WSL の distro が 2 つ以上
+  あるときは、ロゴが同じこともあるので distro の名前も文字で添える
+  - **ロゴは Simple Icons から path だけを写す**（`lib/brandIcons.ts`。依存は増やさない。版と元のファイル名は
+    あのファイルの doc）。**写すのは Simple Icons のデータで個別のライセンスが付いていないもの（パッケージの
+    CC0）だけ**で、そのためクレジット（`src/assets/credits.json`）には足していない。MIT や CC-BY-SA の付いた
+    もの（GitHub Copilot、Debian、Rocky Linux）と独自のもの（Fedora）は表記の義務があるので写さず、lucide か
+    Tux のまま。OpenAI と Microsoft のロゴは Simple Icons に無い（Windows の四角は自前の図形）
+  - CC0 で外れるのは著作権の表記だけで、**各社の商標の規定は別に残る**。単色にする以外の改変をせず、
+    そのエージェントや distro を指す見出しの中だけで使う
+  - ロゴは単色（`currentColor`）で、元の 24×24 の path を変えずに使う（形を変えない。周りに 2 ずつ余白を足し、
+    余白付きの線の lucide と並べたときの大きさをそろえる）。lucide と同じ `size` / `stroke-width` を受ける部品に
+    してあるので、`<component :is>` で入れ替えられる
+- **Claude の出所は設定ディレクトリの `sessions/<pid>.json`**（Claude Code が状態を書き直す。`status` は
+  `busy` / `idle` / `waiting`）。**今のプロジェクトのアカウントの解決は `activeRoot` で行う**（使用量と
+  同じ。worktree を切り替えたら一覧を捨てて読み直す。`scope`）。使用量の集計（`find_active_sessions`）は
+  今のプロジェクトのアカウントのまま（広げたのは一覧だけ）
+- **アカウントの候補は 3 つ**（`agent_live.rs` の doc）: 今のプロジェクトの `config::resolve`、hook の
+  申告（`agent_hook::declared_config_dirs`。プロジェクトを問わない）、ホーム直下の `.claude*`
+  （`agent_hook::candidate_dirs`。hook の登録先の候補と同じ当て推量）。同じディレクトリは 1 つに畳む
+  （Windows のパスは大小を区別しない）。候補は環境ごとに 60 秒覚え、申告のファイルが動けば作り直す
+  - **登録済みのプロジェクトごとに `config::resolve` を払わない**（WSL では対話ログインシェルを起こす）。
+    `.envrc` でホームの外を指すアカウントは、申告が届くまで並ばない
+  - **古い申告を時刻で落とさない。** 見出しは「今セッションが動いているか」で出すので、使わなくなった
+    アカウントの申告が残っていても見出しは出ない（費用は `sessions/` の `read_dir` 1 回）。消えた
+    ディレクトリは実在の確認で落ちる
+  - 設定画面でディレクトリを足す逃げ道は作っていない（今の 3 つで拾えない構成の報告が来てから）
+- **環境は Windows のホストと WSL の両方**（利用者の要望）。今のプロジェクトの環境に、WSL のプロジェクト
+  ならホストを、どちらでも「Pike のターミナルが開いている distro」（`PtyState::open_wsl_distros`）を足す。
+  **止まっている distro は読まない**（UNC を読むと起動し、ポーリングで読み続けると止まらなくなる）
+  - **`wsl.exe --list --running` に聞く形は採らない。** ポーリングのたびにプロセスを起こすか、答えを
+    覚えるあいだに止まった distro を読んで起こすかになる（読むと動いている扱いになるので、次の
+    問い合わせも「動いている」と答え、起こし続ける）。代償は、Pike のターミナルを開いていない distro で
+    Pike の外から起動したセッションが並ばないこと
+  - distro のホームは `wsl_home_cached`（distro につき 1 回 `bash -c`。動いている distro なので起こさない）
+  - **生存の照合は環境ごとに別**（Windows のプロセスと各 distro の `/proc` は別の pid 空間）。一覧が
+    環境のシェル（`LiveSessionList.shell`）を持ち、照合もそのシェルで行う。**環境ごとにスレッドを分けて
+    読む**（`agent_live.rs` の `lists`。UNC 越しの往復が環境の数だけ直列に積み上がらないように）
+  - **行は自分の環境のシェルを持ち、照合・ターミナルを開くシェル・再開のディレクトリの問い合わせは
+    全部それで行う**（`LiveSessionRow.shell`）。プロジェクトのシェルで代用しない（WSL のセッションを
+    Windows のプロジェクトと取り違える）。プロジェクトが同じ環境なら、開くシェルはプロジェクトのもの
+    （利用者が選んだシェル）。プロジェクトの無い WSL のディレクトリは UNC にして開く（`lib/paths.ts` の `openablePathForShell`）
+- **別のアカウントの Claude のセッションは `CLAUDE_CONFIG_DIR`（表の `AgentDef.configEnv`）を付けて再開する**（`resumeLine`。
+  付けないと、開いたターミナルが見ているアカウントで `--resume` を探して見つからない）。値は
+  `LiveSessionList.configOverride`（そのシェルから見た形）で、**既定の `~/.claude` には付けない**
+  （付けると `.claude.json` の置き場が隣から中へ変わる。今のプロジェクトのアカウントも、申告が `~/.claude`
+  を指していれば付けない＝`is_default_dir`）。シェルごとの書き方は `types/tab.ts` の `withEnv`
+  - **既知の隙間**: 既定のアカウントのセッションを、シェルの rc が別の `CLAUDE_CONFIG_DIR` を export している
+    環境で再開すると、その値を継いで `--resume` が見つからない。変数を外す 1 行（`env -u` / `Remove-Item Env:`）を
+    シェルごとに足す手はあるが、報告が来てから
+- **既知の隙間（環境）**: Pike のターミナルのうち distro を名指ししないもの（シェル未指定の spawn と tmux の
+  spawn。`BusyProbe::Wsl` の `distro: None`）は数えない（名前を引くには `wsl.exe` が要る）。ふつうの WSL の
+  タブは distro を名指しして起動するので当たる
+- **Codex の出所は rollout**（`~/.codex/sessions/**/rollout-*.jsonl`、`codex_usage/live.rs`）。pid が無いので
+  状態は 2 つ: **稼働中**＝`ACTIVE_WINDOW_SECS` 以内に書かれ、かつ最後のターンが閉じていない
+  （`task_started` のあとに `task_complete` / `turn_aborted` が無い）、**最近**＝`RECENT_WINDOW_SECS`
+  以内の残り（10 件まで）。mtime だけで決めないこと（ターンを終えて入力を待っているセッションが 5 分
+  「稼働中」に出る）。走査はポーリングなので日付ディレクトリ 3 つだけ
+  - **返答待ちは出さない**: 入力待ちの知らせ（`agent_hook`）は Claude の hook と mod にしか無い。許可の
+    確認待ちも rollout からは確かに読めない。サイドバーの件数にも数えない
+  - **題は `session_index.jsonl` の `thread_name` → 最初のユーザー発話**。ブランチと版は `session_meta`
+    （`git.branch` / `cli_version`）。`name` に当たるものは無い
+  - **タブから引けない**（Codex のタブは `agentRun` / `agentSession` を報告しない）。移動は登録済みの
+    プロジェクト → ディレクトリへ落ち、Pike のターミナルで動いていても再開の確認が出る
+  - 再開は表の `AgentDef.resume`（`codex resume <id>`）。**ストアの `jump` / `reveal` にエージェント固有の
+    分岐を書かない**（アカウントを切り替える環境変数は表の `AgentDef.configEnv`、worktree の再開先は
+    Rust の `agent_live_session_resume_dir` が Codex の `~/.codex` に null を返すことで吸収している）
+  - **`CODEX_HOME` には対応しない**（使用量と再開の一覧も `~/.codex` 固定。揃えて足す）
 - **このディレクトリを読む口は `live_records` の 1 つ**。使用量の集計（`find_active_sessions`）も
   ここを通す。読み方や生存の確かめ方を、使用量の側に別に書かないこと
 - **ファイルは終わったセッションのぶんも残る。** pid が今も同じプロセスかを `procStart` で確かめる
@@ -103,6 +200,10 @@ paths:
   起こさない（起こすのは `/proc` が UNC で見えない WSL だけ）ので、ここを `agent_sessions` の
   「開いたときだけ」と揃えなくてよい。**題を読む記録は mtime で
   覚える**（`transcript_title`）。ここをポーリングのたびに読み直す形にしない
+  - **#633 で 1 回に読む量はアカウントと環境の数に比例する**が、間隔は据え置いた。1 アカウントぶんは
+    `sessions/` の `read_dir` と小さな JSON、生存の照合で、Codex は日付ディレクトリ 3 つの `read_dir` と
+    stat（中身は mtime で覚える）。ふつうはプロセスを起こさない。候補のアカウントは 60 秒覚えるので、
+    ホームの `read_dir` と `.claude.json` の読みは毎回は払わない
 - **飛び先はタブ → 登録済みのプロジェクト → ディレクトリの順**（`jump`）。`cwd` を含むプロジェクトが
   無ければ **git の main worktree から引き直す**（利用者の判断。リポジトリの外の worktree で動く
   セッションを元のプロジェクトへ寄せる）。どれにも当たらなければ `openDirectory`（登録するかは設定）
@@ -114,7 +215,18 @@ paths:
     両方だと 2 回動く）
   - **セッションのタブは `agentRun.sessionId` → `agentSession.id` の順で引く**（`tabBySession`）。
     後者は mod が動いていないタブや、復元の直後でまだ報告が無いタブを拾う
-  - **タブが無ければ、確認のあと `claude --resume <id>` のタブを開く**（利用者の判断。そこを含む
+  - **突き合わせの鍵はエージェント・環境・セッション id の組**（#633。`lib/liveSessions.ts` の
+    `liveSessionTabKey`）。一覧はアカウントと環境をまたぐので、id だけだと別の環境の同じ id の行にタブの印が
+    付く。**行の `tabId`・チラ見の `tabForSession`・着いたウィンドウの `reveal` は同じ鍵で引く**（片方だけ
+    id で引かないこと）。Claude の設定ディレクトリは鍵に入れない（タブは知らない）
+  - **環境の比較は WSL の distro の名前の大小を区別しない**（`wsl -d ubuntu` も `Ubuntu` に当たる）。フロントは
+    `lib/liveSessions.ts` の `livePlaceKey`、Rust は `types::same_install` の 1 か所ずつに寄せてある（申告の照合
+    `matches_project` / `declared_config_dirs` も後者）。パスの比較は大小を区別したまま
+  - **同じ会話の行が 2 つ以上あるときは、印は出すがチラ見させない**（`LiveSessionRow.peekable`）。タブは
+    Claude の pid を持たないので、そのターミナルで動いているのがどちらのプロセスかを確定できない。タブへ
+    移るのは同じ会話なので残す
+  - **タブが無ければ、確認のあと再開のタブを開く**（`resumeLine`。`claude --resume <id>` か `codex resume <id>`、
+    別のアカウントなら環境変数付き。利用者の判断。そこを含む
     worktree へも切り替える）。**確認を外さないこと**: 一覧に出ている時点でセッションは
     どこかで動いているので、再開すると同じ会話を 2 つのプロセスが持つ
     - **開く場所は記録が最後に書かれた場所**（`agent_live_session_resume_dir`。`cwd` は起動した場所で、
@@ -131,6 +243,17 @@ paths:
     実体はストアに置く（片方の画面にだけ項目を足さない）
   - 受け口はストアにあるので、**ストアはサイドバー（`SideBar.vue` の件数）が作る**。サイドバーを
     持たないウィンドウ（グローバルモード）はプロジェクトも持たないので、受ける必要が無い
+- **ターミナルのチラ見（#631）はプロジェクトのプルダウン（#319）と同じポップアップ**（`TerminalPeekPopup.vue`。
+  `project.md` の #319 の節）。パネルと詳細のタブは、行のターミナルの印（`tabId` がある行にだけ出る）を
+  `TerminalPeekMark.vue` にして置く（印とポップアップを 1 つに持つ。2 つの画面で印を写さない）。
+  **行全体をホバー対象にしない**（押そうとして通っただけで出る）
+  - **覗けるのはこのウィンドウのタブで動いているものだけ。** 中身は xterm が描いたものを読むので、
+    ほかのウィンドウや Pike の外のターミナルのセッションは読めない（ウィンドウごとに JS が別）。
+    覗くために Rust へ出力を溜める形にしないこと（`useTerminalPeek.ts` の doc）
+  - **タブは取り直すたびにストアの `tabForSession` で引き直す**。ホバーを始めたときに掴んだ行の
+    オブジェクトは、一覧が組み直されても差し替わらない（タブを閉じても `tabId` が残る）
+  - **`nested` は渡さない**。プルダウンと違って数えられた浮いたものの中に無いので、子 webview が
+    ページを重ねているあいだは出さない（Git パネルのコミットのツールチップと同じ扱い。`frontend.md`）
 
 ## エージェントの一覧（#275 / #267）
 

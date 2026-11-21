@@ -4,9 +4,21 @@ import { computed, onScopeDispose, ref, watch } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
-import { agentById } from '../lib/agents'
-import { deepestContaining, groupLiveSessions, liveSessionLabel, projectForCwd } from '../lib/liveSessions'
-import { relativeTime } from '../lib/paths'
+import { type AgentId, agentById } from '../lib/agents'
+import {
+  deepestContaining,
+  groupLiveSessions,
+  type LiveListHeading,
+  liveListHeading,
+  liveListKey,
+  liveListTitle,
+  livePlaceKey,
+  liveSessionLabel,
+  liveSessionTabKey,
+  projectForCwd,
+  stableLiveOrder,
+} from '../lib/liveSessions'
+import { openablePathForShell, relativeTime } from '../lib/paths'
 import { rootKey } from '../lib/projectPaths'
 import {
   agentLiveSessionResumeDir,
@@ -17,9 +29,9 @@ import {
   windowRestore,
 } from '../lib/tauri'
 import type { GitWorktree } from '../types/git'
-import type { LiveSession } from '../types/liveSession'
+import type { LiveSession, LiveSessionList, LiveStatus } from '../types/liveSession'
 import type { ProjectConfig } from '../types/project'
-import { type ShellType, shellToPlatform } from '../types/tab'
+import { type ShellType, shellToPlatform, type TabOwner, type TerminalTab, withEnv } from '../types/tab'
 import { useProjectStore } from './project'
 import { useSidebarStore } from './sidebar'
 import { useStatusMessageStore } from './statusMessage'
@@ -50,32 +62,85 @@ const REVEAL_EVENT = 'pike://live-session-reveal'
  */
 const REVEAL_WAIT_MS = 15_000
 
-interface RevealPayload {
+/** 一覧の 1 行。セッションに、どのアカウントのものかと、Pike の側で分かることを足したもの。 */
+export interface LiveSessionRow extends LiveSession {
+  agent: AgentId
+  /** 記録を書いた環境のシェル（`LiveSessionList.shell`）。 */
+  shell: ShellType
+  configDir: string
+  /** 再開するときにエージェントの `configEnv` へ渡す値（`LiveSessionList.configOverride`）。 */
+  configOverride: string | null
+  /** `cwd` を含む登録済みのプロジェクト。無ければ null（飛ぶとそのディレクトリを開く）。 */
+  project: ProjectConfig | null
+  /** このウィンドウのターミナルのタブで動いていれば、その id。 */
+  tabId: string | null
+  /**
+   * タブのターミナルをチラ見してよいか（#631 / #633）。**同じ会話の行が 2 つ以上あるときは偽**: 同じ会話を
+   * `--resume` で別のプロセスが開いていると、タブはどちらの行にも当たり、そのターミナルで動いているのが
+   * どちらのプロセスかを Pike は知らない（タブは Claude の pid を持たない）。覗くと別のプロセスの画面を
+   * 見せうるので、印は出すが覗かせない（タブへ移るのは同じ会話なので残す）。
+   */
+  peekable: boolean
+  /** 今見ているプロジェクトのセッションか。 */
+  here: boolean
+}
+
+/** 着いたウィンドウへ渡すもの。行のうち、再開に要る欄をそのまま運ぶ。 */
+type RevealPayload = Pick<
+  LiveSessionRow,
+  'sessionId' | 'cwd' | 'agent' | 'status' | 'shell' | 'configDir' | 'configOverride'
+> & {
   projectId: string
-  sessionId: string
-  cwd: string
   /** 確認の文面と、開くタブの名前に使う。 */
   name: string
   /** 着いたウィンドウですること。セッションを前に出すか、そのディレクトリでシェルを開くか。 */
   action: 'session' | 'terminal'
 }
 
-/** 一覧の 1 行。セッションに、Pike の側で分かることを足したもの。 */
-export interface LiveSessionRow extends LiveSession {
-  /** `cwd` を含む登録済みのプロジェクト。無ければ null（飛ぶとそのディレクトリを開く）。 */
-  project: ProjectConfig | null
-  /** このウィンドウのターミナルのタブで動いていれば、その id。 */
-  tabId: string | null
-  /** 今見ているプロジェクトのセッションか。 */
-  here: boolean
+/** アカウントの見出し 1 つと、その下の状態のグループ（#633）。 */
+export interface LiveSessionSection {
+  key: string
+  title: string
+  /** 見出しの部品（エージェントと環境はアイコン。`LiveAccountHeading.vue` が描く）。 */
+  heading: LiveListHeading
+  /** 今のプロジェクトのアカウントか（並びの先頭にする。`stableLiveOrder`）。 */
+  current: boolean
+  configDir: string
+  groups: { status: LiveStatus; sessions: LiveSessionRow[] }[]
+  /** セッションの数（折り畳んだ見出しにも出す）。 */
+  total: number
+  /** そのうち返答待ちの数。 */
+  waiting: number
 }
 
 /**
- * 今動いている Claude Code のセッションの一覧（#625）。サイドバーのセッションのパネル
+ * 再開のコマンド。**別のアカウントには、エージェントの `configEnv`（Claude なら `CLAUDE_CONFIG_DIR`）を
+ * 付ける**（付けないと、開いたターミナルが見ているアカウントで `--resume` を探して見つからない）。
+ * 既定の `~/.claude` のアカウントには付けない（`configOverride` が無い。付けると `.claude.json` の
+ * 置き場が変わる）。
+ */
+function resumeLine(
+  row: Pick<RevealPayload, 'agent' | 'sessionId' | 'configOverride'>,
+  shell: ShellType,
+): string | null {
+  const def = agentById(row.agent)
+  if (!def) return null
+  const line = def.resume(row.sessionId)
+  return def.configEnv && row.configOverride ? withEnv(shell, def.configEnv, row.configOverride, line) : line
+}
+
+/**
+ * 今動いているエージェントのセッションの一覧（#625 / #633）。サイドバーのセッションのパネル
  * （`AgentSessionsPanel.vue`）と、詳細のタブ（`AgentSessionsTab.vue`）が読む。
  *
- * **読むのは今のプロジェクトのアカウントのぶんだけ**（利用者の判断。Rust の
- * `agent_live_sessions` が `config::resolve` で決める）。
+ * **一覧はアカウント（エージェント × 環境 × 設定ディレクトリ）ごとに分かれて届く**（どれを読むかは
+ * Rust の `agent_live.rs` の doc が正本）。先頭は今のプロジェクトのアカウントで、ほかはセッションが
+ * あるものだけ。**1 つしか無ければ見出しを出さない**（`showHeadings`。アカウントが 1 つで Codex を
+ * 使っていなければ、#625 のころと同じ見た目）。
+ *
+ * **行は自分の環境のシェルを持つ**（`LiveSessionRow.shell`）。プロジェクトとの照合も、開く
+ * ターミナルのシェルも、再開のディレクトリの問い合わせも、そのシェルで行う（Windows のプロジェクトを
+ * 開いていても、WSL のセッションは WSL で再開する）。
  *
  * **このストアはサイドバーのアイコンの件数が作る**（`SideBar.vue`）。飛んだ先のウィンドウで
  * タブを前に出す知らせ（`REVEAL_EVENT`）の受け口もここにあるので、プロジェクトを見せる
@@ -86,17 +151,19 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const tabStore = useTabStore()
   const sidebar = useSidebarStore()
 
-  const sessions = ref<LiveSession[]>([])
-  /** 前回の答え（JSON）。同じなら `sessions` を差し替えない（行の組み直しと描き直しを省く）。 */
+  const lists = ref<LiveSessionList[]>([])
+  /** 前回の答え（JSON）。同じなら `lists` を差し替えない（行の組み直しと描き直しを省く）。 */
   let lastJson = ''
-  const configDir = ref<string | null>(null)
-  const account = ref<string | null>(null)
+  /** 今のプロジェクトのアカウント（見出しを出さないときに、パネルの上に名前を出す）。 */
+  const currentList = computed(() => lists.value.find((l) => l.current) ?? null)
+  const configDir = computed(() => currentList.value?.configDir ?? null)
+  const account = computed(() => currentList.value?.account ?? null)
   const loading = ref(false)
   /** 一覧をどこで読んだか（`scope`）。切り替え直後に前のアカウントの一覧を出さない。 */
   const loadedFor = ref<string | null>(null)
   /**
    * 最後に取り直した時刻。**相対時刻の表示はこれに依存させる**（`since`）: 中身が同じなら
-   * `sessions` を差し替えないので、これが無いと「2 分前」が描き直されないまま残る。
+   * `lists` を差し替えないので、これが無いと「2 分前」が描き直されないまま残る。
    */
   const checkedAt = ref(0)
   let seq = 0
@@ -125,15 +192,13 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     const mine = ++seq
     loading.value = true
     try {
-      const list = await agentLiveSessions(project.shell, projectStore.activeRoot)
+      const found = await agentLiveSessions(project.shell, projectStore.activeRoot)
       if (mine !== seq || scope.value !== key) return
-      const json = JSON.stringify(list.sessions)
+      const json = JSON.stringify(found)
       if (json !== lastJson || loadedFor.value !== key) {
         lastJson = json
-        sessions.value = list.sessions
+        lists.value = found
       }
-      configDir.value = list.configDir
-      account.value = list.account
       loadedFor.value = key
       checkedAt.value = Date.now()
     } catch {
@@ -163,7 +228,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     scope,
     (key) => {
       seq++
-      sessions.value = []
+      lists.value = []
       lastJson = ''
       loadedFor.value = null
       loading.value = false
@@ -193,7 +258,8 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   )
 
   /**
-   * セッション id → このウィンドウのターミナルのタブ。保持中の他のプロジェクトのタブも含む。
+   * セッションの鍵（`liveSessionTabKey`。理由は `tabForSession` の doc）→ このウィンドウのターミナルの
+   * タブ。保持中の他のプロジェクトのタブも含む。
    *
    * **出所は 2 つで、今動いている報告を優先する。** `agentRun` は同梱の mod が知らせる今の
    * セッションで、`agentSession` はそのタブで最後に動いていたセッション（保存に載り、復元で
@@ -203,17 +269,38 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
    */
   const tabBySession = computed(() => {
     const map = new Map<string, string>()
-    for (const tab of tabStore.tabs) {
-      if (tab.kind !== 'terminal' || !tab.agentSession || map.has(tab.agentSession.id)) continue
-      const running = tab.agentRun?.sessionId
-      if (running && running !== tab.agentSession.id) continue
-      map.set(tab.agentSession.id, tab.id)
+    // タブの鍵。シェルを指定していないタブは、そのプロジェクトのシェルで開いている（保持中の別の
+    // プロジェクトも、登録していないディレクトリも。`findProject`）。**プロジェクトを引けないタブは
+    // 突き合わせない**（今のプロジェクトのシェルで代用すると、別の環境の鍵が付く）。
+    const keyOf = (tab: TerminalTab & TabOwner, agent: AgentId, id: string): string | null => {
+      const shell = tab.shell ?? (tab.projectId ? projectStore.findProject(tab.projectId)?.shell : undefined)
+      return shell ? liveSessionTabKey(agent, shell, id) : null
     }
     for (const tab of tabStore.tabs) {
-      if (tab.kind === 'terminal' && tab.agentRun?.sessionId) map.set(tab.agentRun.sessionId, tab.id)
+      if (tab.kind !== 'terminal' || !tab.agentSession) continue
+      const running = tab.agentRun?.sessionId
+      if (running && running !== tab.agentSession.id) continue
+      const key = keyOf(tab, tab.agentSession.agent, tab.agentSession.id)
+      if (key && !map.has(key)) map.set(key, tab.id)
+    }
+    for (const tab of tabStore.tabs) {
+      if (tab.kind !== 'terminal' || !tab.agentRun?.sessionId) continue
+      const key = keyOf(tab, tab.agentRun.agent, tab.agentRun.sessionId)
+      if (key) map.set(key, tab.id)
     }
     return map
   })
+
+  /**
+   * セッションを動かしているこのウィンドウのタブ。行の `tabId` と同じ答えを、その時点のタブから引く
+   * （チラ見の取り直しが使う。#631。ホバーを始めたときに掴んだ行のオブジェクトは、一覧が組み直されても
+   * 差し替わらないので、その `tabId` を読み続けると閉じたタブを指したままになる）。
+   *
+   * **突き合わせはエージェント・環境・セッション id の組で行う**（#633。理由は `liveSessionTabKey` の doc）。
+   */
+  function tabForSession(row: Pick<LiveSessionRow, 'agent' | 'shell' | 'sessionId'>): string | null {
+    return tabBySession.value.get(liveSessionTabKey(row.agent, row.shell, row.sessionId)) ?? null
+  }
 
   /**
    * セッションの居場所と突き合わせるプロジェクト。**今のプロジェクトは必ず入れる**: 登録せずに
@@ -227,21 +314,65 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     return list
   })
 
-  const rows = computed<LiveSessionRow[]>(() => {
+  /** 一覧ごとの行。**照合は一覧の環境のシェルで行う**（WSL のセッションを Windows のプロジェクトと取り違えない）。 */
+  const listRows = computed(() => {
     const project = projectStore.currentProject
     if (!project || loadedFor.value !== scope.value) return []
-    return sessions.value.map((s) => {
-      const owner = projectForCwd(s.cwd, project.shell, candidates.value)
-      return {
-        ...s,
-        project: owner,
-        tabId: tabBySession.value.get(s.sessionId) ?? null,
-        here: owner?.id === project.id,
+    // 同じ鍵の行の数（同じ会話を `--resume` で 2 つ目のプロセスが開いたとき 2 以上になる）。
+    const sameKey = new Map<string, number>()
+    for (const list of lists.value) {
+      for (const s of list.sessions) {
+        const key = liveSessionTabKey(list.agent, list.shell, s.sessionId)
+        sameKey.set(key, (sameKey.get(key) ?? 0) + 1)
       }
-    })
+    }
+    return lists.value.map((list) => ({
+      list,
+      rows: list.sessions.map((s: LiveSession): LiveSessionRow => {
+        const owner = projectForCwd(s.cwd, list.shell, candidates.value)
+        const tabId = tabForSession({ agent: list.agent, shell: list.shell, sessionId: s.sessionId })
+        return {
+          ...s,
+          agent: list.agent,
+          shell: list.shell,
+          configDir: list.configDir,
+          configOverride: list.configOverride,
+          project: owner,
+          tabId,
+          peekable: !!tabId && sameKey.get(liveSessionTabKey(list.agent, list.shell, s.sessionId)) === 1,
+          here: owner?.id === project.id,
+        }
+      }),
+    }))
   })
 
-  const groups = computed(() => groupLiveSessions(rows.value))
+  const rows = computed(() => listRows.value.flatMap((l) => l.rows))
+
+  /**
+   * アカウントの見出しごとのグループ。並びは固定の順（`stableLiveOrder`。Rust が返す順は動く）。
+   * 見出しに環境を足すのは、一覧が 2 つ以上の環境にまたがるときだけ。distro の名前を文字で添えるのは、
+   * WSL の distro が 2 つ以上あるときだけ（アイコンが同じなので）。
+   */
+  const sections = computed<LiveSessionSection[]>(() => {
+    const places = new Set(listRows.value.map(({ list }) => livePlaceKey(list.shell)))
+    const distros = new Set(
+      listRows.value.flatMap(({ list }) => (list.shell.kind === 'wsl' ? [livePlaceKey(list.shell)] : [])),
+    )
+    const all = listRows.value.map(({ list, rows }) => ({
+      key: liveListKey(list),
+      title: liveListTitle(list, places.size > 1),
+      heading: liveListHeading(list, places.size > 1, distros.size > 1),
+      current: list.current,
+      configDir: list.configDir,
+      groups: groupLiveSessions(rows),
+      total: rows.length,
+      waiting: rows.filter((r) => r.status === 'waiting').length,
+    }))
+    return stableLiveOrder(all)
+  })
+  /** 見出しを出すか。一覧が 1 つなら出さない（#625 のころと同じ見た目）。 */
+  const showHeadings = computed(() => sections.value.length > 1)
+  /** サイドバーのアイコンの件数。**全アカウントの合計**（Codex は返答待ちを持たない）。 */
   const waitingCount = computed(() => rows.value.filter((r) => r.status === 'waiting').length)
   /** 一覧が空のときに出す文言（i18n のキー）。最初の取得が返るまでは「読み込み中」。 */
   const emptyKey = computed(() => (loading.value && loadedFor.value === null ? 'common.loading' : 'liveSessions.empty'))
@@ -296,11 +427,12 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   async function goTo(row: LiveSessionRow, action: RevealPayload['action']) {
     const project = projectStore.currentProject
     if (!project) return
-    const owner = row.project ?? (await projectFromMainWorktree(row.cwd, project.shell))
+    const owner = row.project ?? (await projectFromMainWorktree(row.cwd, row.shell))
     if (!owner) {
-      // シェルを開くだけならプロジェクトは要らない。今のウィンドウでそのディレクトリに開く。
-      if (action === 'terminal') tabStore.addTerminalTab({ cwd: row.cwd, shell: project.shell })
-      else await projectStore.openDirectory(row.cwd)
+      // シェルを開くだけならプロジェクトは要らない。今のウィンドウでそのディレクトリに開く
+      // （シェルはセッションの環境のもの）。
+      if (action === 'terminal') tabStore.addTerminalTab({ cwd: row.cwd, shell: row.shell })
+      else await projectStore.openDirectory(openablePathForShell(row.shell, row.cwd))
       return
     }
     const payload: RevealPayload = {
@@ -309,6 +441,11 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
       cwd: row.cwd,
       name: row.name ?? liveSessionLabel(row),
       action,
+      agent: row.agent,
+      status: row.status,
+      shell: row.shell,
+      configDir: row.configDir,
+      configOverride: row.configOverride,
     }
     if (owner.id !== project.id) {
       // **このウィンドウが保持しているなら、ここで切り替えて待つ。** `focusOrSwitch` は保持している
@@ -334,9 +471,9 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   async function openInNewWindow(row: LiveSessionRow) {
     const project = projectStore.currentProject
     if (!project) return
-    const owner = row.project ?? (await projectFromMainWorktree(row.cwd, project.shell))
+    const owner = row.project ?? (await projectFromMainWorktree(row.cwd, row.shell))
     if (owner) await projectStore.openProject(owner.id, 'window')
-    else await projectStore.openDirectory(row.cwd, 'window')
+    else await projectStore.openDirectory(openablePathForShell(row.shell, row.cwd), 'window')
   }
 
   /** クリップボードへ写し、ステータスバーで知らせる。 */
@@ -353,8 +490,8 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   /** 右クリックのコピー 3 つ。何を写すかの正本（パネルとタブが同じものを呼ぶ）。 */
   const copySessionId = (row: LiveSessionRow) => copy(row.sessionId)
   const copyResumeCommand = (row: LiveSessionRow) => {
-    const resume = agentById('claude')?.resume
-    if (resume) void copy(resume(row.sessionId))
+    const line = resumeLine(row, row.shell)
+    if (line) void copy(line)
   }
   const copyCwd = (row: LiveSessionRow) => copy(row.cwd)
 
@@ -389,8 +526,8 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
    * ウィンドウだけが動く。** まだ切り替わっていなければ、切り替わるまで待つ。
    *
    * - **そのセッションのタブがあれば選ぶ**（`tabBySession`）
-   * - **無ければ、セッションのディレクトリで `claude --resume <id>` のタブを開く**（利用者の
-   *   判断）。そのディレクトリを含む worktree へも切り替える（パネルが同じ場所を見るように）。
+   * - **無ければ、セッションのディレクトリで再開のタブを開く**（利用者の判断。コマンドは表の
+   *   `AgentDef.resume`。別のアカウントの Claude には `CLAUDE_CONFIG_DIR` を付ける＝`resumeLine`）。そのディレクトリを含む worktree へも切り替える（パネルが同じ場所を見るように）。
    *   **開く前に確認する**: 一覧に出ている時点でそのセッションはどこかで動いているので、
    *   再開すると同じ会話を 2 つのプロセスが持つことになる
    */
@@ -413,26 +550,33 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     }
     pending = null
     await windowRestore().catch(() => {})
+    // **シェルは、プロジェクトがセッションと同じ環境ならプロジェクトのもの**（利用者が選んだ
+    // シェル。`projectForCwd` は同じ環境のプロジェクトしか返さないので、ふつうはこちら）。
+    const shell = livePlaceKey(project.shell) === livePlaceKey(payload.shell) ? project.shell : payload.shell
     if (payload.action === 'terminal') {
-      tabStore.addTerminalTab({ cwd: payload.cwd, shell: project.shell })
+      tabStore.addTerminalTab({ cwd: payload.cwd, shell })
       return
     }
-    const tabId = tabBySession.value.get(payload.sessionId)
+    const tabId = tabForSession(payload)
     if (tabId) {
       await focusSessionTab(tabId)
       return
     }
-    const resume = agentById('claude')?.resume
-    if (!resume) return
-    if (!(await confirmDialog(t('liveSessions.confirmResume', { name: payload.name })))) return
+    const autoStart = resumeLine(payload, shell)
+    if (!autoStart) return
+    // 「最近」（Codex の、動いているか分からないもの）は、動いている前提の文面で聞かない。
+    const confirmKey = payload.status === 'recent' ? 'liveSessions.confirmResumeRecent' : 'liveSessions.confirmResume'
+    const agentLabel = agentById(payload.agent)?.label ?? payload.agent
+    if (!(await confirmDialog(t(confirmKey, { name: payload.name, agent: agentLabel })))) return
     // **待つたびに、まだそのプロジェクトに居るかを確かめる。** 別のプロジェクトへ移っていたら、
     // worktree の切り替えもタブも、そのプロジェクトのものに付いてしまう。
     const stillHere = () => projectStore.currentProject?.id === payload.projectId
     if (!stillHere()) return
     // **再開する場所は記録の書かれた場所**（途中で worktree へ移ったセッションは移動先でしか
     // `--resume` が通らない。`agent_live_session_resume_dir` の doc）。分からなければ起動した場所。
+    // 移動先を探せるのは Claude だけで、Codex には Rust が null を返す（起動した場所で再開する）。
     const dir =
-      (await agentLiveSessionResumeDir(project.shell, projectStore.activeRoot, payload.cwd, payload.sessionId).catch(
+      (await agentLiveSessionResumeDir(payload.shell, payload.configDir, payload.cwd, payload.sessionId).catch(
         () => null,
       )) ?? payload.cwd
     const worktreeStore = useWorktreeStore()
@@ -449,17 +593,12 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     if (!stillHere()) return
     // **確認のあいだにタブが見つかったら、そちらを選ぶ**（復元の直後は mod の報告が遅れて届く）。
     // 再開すると、確認が避けようとしている「同じ会話を 2 つのプロセスが持つ」になる。
-    const appeared = tabBySession.value.get(payload.sessionId)
+    const appeared = tabForSession(payload)
     if (appeared) {
       await focusSessionTab(appeared)
       return
     }
-    tabStore.addTerminalTab({
-      cwd: dir,
-      shell: project.shell,
-      autoStart: resume(payload.sessionId),
-      title: payload.name,
-    })
+    tabStore.addTerminalTab({ cwd: dir, shell, autoStart, title: payload.name })
   }
 
   watch(
@@ -481,7 +620,9 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     account,
     loading,
     rows,
-    groups,
+    tabForSession,
+    sections,
+    showHeadings,
     waitingCount,
     emptyKey,
     checkedAt,

@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { Cable, ExternalLink, Play, RefreshCw, ScrollText, Square, Terminal, Unplug } from 'lucide-vue-next'
+import { Cable, Database, ExternalLink, Play, RefreshCw, ScrollText, Square, Terminal, Unplug } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { promptDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
+import { dbEngineOfImage } from '../../lib/dbViewer'
 import { openLocalTunnel } from '../../lib/openUrl'
 import { basename, joinPath, normalizeSep, pathSep } from '../../lib/paths'
 import { dockerContainerPorts, dockerDetectShell } from '../../lib/tauri'
+import { useDbStore } from '../../stores/db'
 import { useDockerStore } from '../../stores/docker'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
@@ -16,6 +18,7 @@ const { t } = useI18n()
 
 const dockerStore = useDockerStore()
 const tabStore = useTabStore()
+const dbStore = useDbStore()
 const projectStore = useProjectStore()
 const sidebar = useSidebarStore()
 
@@ -80,6 +83,15 @@ async function openShell(containerId: string, containerName: string) {
   } catch (e) {
     dockerStore.error = String(e)
   }
+}
+
+/**
+ * DB のコンテナ（イメージ名で判定）を DB ビューワで開く（#632）。DB パネルの行と同じく、つないで
+ * から開き、つなげなければ接続のダイアログを出す（`stores/db.ts` の `open`）。
+ */
+function openDb(containerId: string, image: string) {
+  const engine = dbEngineOfImage(image)
+  if (engine) void dbStore.open({ engine, via: { kind: 'container', containerId } })
 }
 
 function tunnelsFor(containerId: string | undefined) {
@@ -183,6 +195,11 @@ onUnmounted(() => dockerStore.stopPolling())
                   :title="t('docker.shell')"
                   @click="openShell(row.container.id, row.name)"
                 ><Terminal :size="12" :stroke-width="2" /></button>
+                <button
+                  v-if="row.container.state === 'running' && dbEngineOfImage(row.container.image)"
+                  :title="t('docker.openDb')"
+                  @click="openDb(row.container.id, row.container.image)"
+                ><Database :size="12" :stroke-width="2" /></button>
                 <button
                   v-if="row.container.state === 'running'"
                   :disabled="dockerStore.tunnelBusy.includes(row.container.id)"

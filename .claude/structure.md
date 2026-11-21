@@ -44,6 +44,7 @@ pike/
 │       ├── autostart.rs       # ログイン時の起動（HKCU の Run キー、Windows のみ、#419）
 │       ├── bell.rs            # ターミナルの BEL で鳴らす OS のシステム音（MessageBeep / NSBeep、#481）
 │       ├── agent_sessions.rs  # 再開できる過去セッションの一覧（#267。出所は 4 つとも違う）
+│       ├── agent_live.rs      # 今動いているセッションの一覧を、環境とアカウントごとに集める口（#633）
 │       ├── agent_usage/
 │       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）
 │       │   ├── copilot.rs     # Copilot の premium request（~/.copilot の events.jsonl）
@@ -71,6 +72,7 @@ pike/
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）と仮想デスクトップ（#317）
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
 │       ├── webview_focus.rs   # ウィンドウが得たフォーカスを本体の webview へ渡す（#439、WebView2 COM）
+│       ├── dialog_win.rs      # ファイル / フォルダ選択のダイアログ（#638、Windows 専用 COM。入口は lib.rs の `mod dialog`）
 │       ├── vdesk/mod.rs       # 仮想デスクトップ（#317、Windows 専用 COM。他 OS は stub）
 │       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）
 │       ├── appmenu/mod.rs     # macOS のアプリケーションメニュー（#254、macOS 専用）
@@ -79,11 +81,13 @@ pike/
 │       │   ├── mod.rs         # デスクトップ通知（#318、Windows 専用。押すとウィンドウが前に出る）
 │       │   └── activation.rs  # 押されたことを受ける `pike://` の組み立てと読み取り（#334）
 │       ├── diagnostics/mod.rs # 外部リンタ実行 → Problems パネル
-│       ├── codex_usage/mod.rs # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
+│       ├── codex_usage/
+│       │   ├── mod.rs         # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
+│       │   └── live.rs        # 今動いている Codex のセッション（#633。rollout の mtime とターンの印から推す）
 │       ├── claude_usage/
 │       │   ├── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
 │       │   ├── config.rs      # CLAUDE_CONFIG_DIR の解決とアカウント読み出し（#225）
-│       │   ├── live.rs        # 今動いているセッションの一覧（#625。`sessions/<pid>.json` と生存の照合）
+│       │   ├── live.rs        # 今動いている Claude のセッション（#625。`sessions/<pid>.json` と生存の照合）
 │       │   ├── rate.rs        # `claude -p "/usage"` のレート制限パース（#117）
 │       │   └── sessions.rs    # 再開できる過去セッションの Claude ぶんの収集（#220。口は agent_sessions.rs）
 │       ├── pty/
@@ -106,6 +110,9 @@ pike/
 │       ├── docker/
 │       │   ├── mod.rs         # bollard クライアント・compose パース・ログストリーム
 │       │   └── tunnel.rs      # 未公開ポートへの socat ポートフォワード（#120）
+│       ├── db/
+│       │   ├── mod.rs         # 簡易 DB ビューワ（#632）。mysql / psql をコンテナ（bollard の exec）かシェルで起こす
+│       │   └── sql.rs         # 発行する固定の SQL・識別子と文字列の引用・クライアントの出力の読み方・書き出しの整形
 │       ├── issues/
 │       │   └── mod.rs         # gh 経由の GitHub issue 一覧（#278）
 │       ├── ci/
@@ -127,6 +134,7 @@ pike/
 │   │   ├── js-beautify.d.ts   # js-beautify の型（同梱されないので使う 3 関数だけ宣言、#366）
 │   │   ├── markdown-it-emoji.d.ts  # 絵文字の対応表（`lib/data/full.mjs`）の型（#482）
 │   │   ├── diagnostics.ts  docker.ts
+│   │   ├── db.ts              # DB ビューワの接続先と結果（#632。Rust の `db` と同じ形）
 │   │   ├── git.ts  search.ts  tasks.ts  issues.ts  ci.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
@@ -145,9 +153,13 @@ pike/
 │   │   ├── PatchFileRow.vue     # 変更されたファイルの一覧の 1 行（コミットタブと作業中の変更のタブ、#526）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── LiveSessionMenu.vue  # 今動いているセッションの右クリックメニュー（パネルと詳細のタブで共有、#625）
+│   │   ├── LiveAccountHeading.vue  # セッションの一覧のアカウントの見出し（エージェントと環境をアイコンで、#633）
+│   │   ├── TerminalPeekPopup.vue # ターミナルのチラ見のポップアップ（プロジェクトのプルダウンとセッションの一覧で共有、#319 / #631）
+│   │   ├── TerminalPeekMark.vue  # ホバーでチラ見する印（セッションのパネルと詳細のタブで共有、#631）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
 │   │   ├── CreateWorktreeDialog.vue # worktree の作成ダイアログ（名前・ベースブランチ・作成先、#478）
+│   │   ├── DbConnectDialog.vue # DB ビューワの接続のダイアログ（接続のフォームはここ 1 つ、#632）
 │   │   ├── WatcherNotice.vue    # ファイル監視の知らせの帯（ツリーと設定画面で共有、#385）
 │   │   ├── ToolNotice.vue       # 足りないツールの帯の見た目（ファイル監視と ripgrep で共有）
 │   │   ├── layout/
@@ -168,6 +180,7 @@ pike/
 │   │   │   ├── ProfileRow.vue     # 並べ替え + 表示/非表示の 1 行（シェル #129 とエージェント #275 で共有）
 │   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（#373 以降は編集フォームだけ）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
+│   │   │   ├── DbPanel.vue        # DB ビューワの接続先の候補（コンテナ・保存した接続・.env、#632）
 │   │   │   ├── GitErrorBlock.vue  # Git パネル上部のエラー表示（閉じる・コピー・エージェントへの依頼、#436）
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
@@ -207,6 +220,7 @@ pike/
 │   │       ├── DiffTab.vue        # 左右分割 diff
 │   │       ├── HistoryTab.vue     # ファイル別 git log（git log -L 行範囲対応）
 │   │       ├── DockerLogsTab.vue  # コンテナログ（xterm 読み取り専用）
+│   │       ├── DbTab.vue          # 簡易 DB ビューワ（つなげた接続先のテーブル → 中身 / スキーマ、表は CSV プレビューの部品、#632）
 │   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
 │   │       ├── IssueTab.vue       # GitHub issue 1 件の読み取り専用表示（gh 経由、#278）
 │   │       ├── CommitTab.vue      # コミット 1 つのメッセージと全ファイルの差分（グラフ表示のクリック、#374）
@@ -220,6 +234,7 @@ pike/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts  settings.ts  project.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
+│   │   ├── db.ts              # DB ビューワの接続先の候補・自動接続・接続のダイアログ・保存した接続（#632）
 │   │   ├── diagnostics.ts  issues.ts
 │   │   ├── ci.ts              # CI の実行の一覧と、実行中だけのポーリング（#457）
 │   │   ├── browser.ts         # ブラウザのタブの閲覧履歴（#368。マシンごと。ブックマークは settings.ts）
@@ -243,6 +258,7 @@ pike/
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts  useAnchoredPopup.ts
 │   │   ├── useCopyOnSelect.ts # 選択した文字列をクリップボードへ（#342。#408 で常に / 毎回確認 / OFF の 3 値。値の定義は lib/copyOnSelect.ts）
 │   │   ├── useCsvSelection.ts # CSV プレビューの列・行の選択とタブ区切りのコピー（Excel 風）
+│   │   ├── useCsvTable.ts     # CSV の表のページ・並べ替え・選択・キー（エディタの CSV プレビューと DB ビューワが共有、#632）
 │   │   ├── useTerminalUrlLinks.ts # 出力の URL のリンク化を設定で付け外しする（#343）
 │   │   ├── useDiffWrap.ts  # 差分の行を折り返すか（履歴タブとコミットタブ、#453）
 │   │   ├── useDragResize.ts  # 横幅を変えるドラッグの配線（サイドバーの幅・diff の分割線、#297）
@@ -287,6 +303,7 @@ pike/
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
 │   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）
 │   │   ├── csvPreview.ts     # CSV プレビューの表（読み込み・並べ替え・ページ送りの HTML）
+│   │   ├── dbViewer.ts       # DB ビューワの純粋な部分（イメージ名で種類を当てる・結果を表と CSV / TSV にする・接続先の候補と保存する形、#632）
 │   │   ├── copyOnSelect.ts   # ターミナルの「選択時にコピー」の 3 値と、古い版の真偽値との読み替え（#408）
 │   │   ├── domFind.ts        # 描画済み DOM の文字検索と CSS Custom Highlight の登録（#360）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
@@ -297,6 +314,8 @@ pike/
 │   │   ├── loginExpiry.ts    # Claude Code のサインインの期限の幅・残り日数・警告の判定（#604。i18n を読まない）
 │   │   ├── liveSessions.ts   # 動いているセッションの状態ごとの並べ方と、cwd からプロジェクトを引く規則（#625）
 │   │   ├── liveSessionIcons.ts # 動いているセッションの状態のアイコン（#625。パネルと詳細のタブで共有）
+│   │   ├── agentIcons.ts      # エージェント → アイコン（#633。`shellIcons.ts` と同じ形）
+│   │   ├── brandIcons.ts      # 各社のロゴ（Simple Icons の CC0 のものから path を写した）と Windows の四角（#633）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── issueLabels.ts    # issue パネルで隠すラベルの検証と判定（#531。設定画面の欄は SettingTagList.vue）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278。エディタのプレビューも使う、#482）
@@ -348,6 +367,7 @@ pike/
 │   └── assets/
 │       ├── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
 │       ├── preview.css        # 本文から描くプレビューの見た目（lib/previewRender.ts が読み込む、#524）
+│       ├── csvTable.css       # CSV の表の見た目（composables/useCsvTable.ts が読み込む。CSV プレビューと DB ビューワ、#632）
 │       └── credits.json       # 依存のライセンス一覧（生成物。scripts/gen-credits.mjs、#420）
 └── .claude/
     ├── structure.md       # このファイル

@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type { AgentSession } from '../types/agentSession'
 import type { AgentUsage } from '../types/agentUsage'
 import type { CiAction, CiConfigs, CiJob, CiListResult, CiProvider } from '../types/ci'
+import type { DbContainerDefaults, DbDumpFormat, DbEngine, DbProbe, DbResult, DbTarget } from '../types/db'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
@@ -1377,6 +1378,34 @@ export async function dockerContainerPorts(containerId: string): Promise<number[
   return invoke<number[]>('docker_container_ports', { containerId })
 }
 
+// DB ビューワ（#632）。SQL は Rust が組む固定のものだけで、渡せるのはテーブル名だけ。
+
+export async function dbContainerDefaults(containerId: string, engine: DbEngine): Promise<DbContainerDefaults> {
+  return invoke<DbContainerDefaults>('db_container_defaults', { containerId, engine })
+}
+
+/**
+ * 接続を確かめ、今の DB・DB の一覧・テーブルの一覧をまとめて返す（`stores/db.ts` の `open` と
+ * DB タブの読み直し）。テーブルの一覧が取れなければ失敗で返す。
+ */
+export async function dbProbe(target: DbTarget): Promise<DbProbe> {
+  return invoke<DbProbe>('db_probe', { target })
+}
+
+export async function dbSchema(target: DbTarget, table: string): Promise<DbResult> {
+  return invoke<DbResult>('db_schema', { target, table })
+}
+
+/** テーブルの先頭の行（上限は Rust の `ROW_LIMIT`。切ったら `truncated`）。 */
+export async function dbRows(target: DbTarget, table: string): Promise<DbResult> {
+  return invoke<DbResult>('db_rows', { target, table })
+}
+
+/** テーブル全体を `path`（ホストのパス）へ書き出し、書いた行数を返す。 */
+export async function dbDump(target: DbTarget, table: string, format: DbDumpFormat, path: string): Promise<number> {
+  return invoke<number>('db_dump', { target, table, format, path })
+}
+
 // Window
 
 export async function openProjectWindow(projectId: string, held?: string[]): Promise<void> {
@@ -1615,25 +1644,26 @@ export async function agentSessionsList(id: string, shell: ShellType, projectRoo
 }
 
 /**
- * このプロジェクトのアカウントで今動いている Claude Code のセッション（#625）。セッションの
- * パネルと詳細のタブがポーリングする。失敗は空の一覧で返る。
+ * 今動いているエージェントのセッションを、アカウント（エージェント × 環境 × 設定ディレクトリ）
+ * ごとに返す（#625 / #633）。先頭は今のプロジェクトのアカウント。セッションのパネルと詳細の
+ * タブがポーリングする。失敗は空の一覧で返る。
  */
-export async function agentLiveSessions(shell: ShellType, projectRoot: string): Promise<LiveSessionList> {
-  return invoke<LiveSessionList>('agent_live_sessions', { shell, projectRoot })
+export async function agentLiveSessions(shell: ShellType, projectRoot: string): Promise<LiveSessionList[]> {
+  return invoke<LiveSessionList[]>('agent_live_sessions', { shell, projectRoot })
 }
 
 /**
- * 動いているセッションを `claude --resume` できるディレクトリ（#625）。起動した場所（`cwd`）の
- * ままでよければ null。途中で worktree へ移ったセッションは移動先を返す。git を起こすので、
- * 押したときにだけ呼ぶ。
+ * 動いている Claude のセッションを `claude --resume` できるディレクトリ（#625）。起動した場所
+ * （`cwd`）のままでよければ null。途中で worktree へ移ったセッションは移動先を返す。git を
+ * 起こすので、押したときにだけ呼ぶ。`shell` と `configDir` は一覧（`LiveSessionList`）の値。
  */
 export async function agentLiveSessionResumeDir(
   shell: ShellType,
-  projectRoot: string,
+  configDir: string,
   cwd: string,
   sessionId: string,
 ): Promise<string | null> {
-  return invoke<string | null>('agent_live_session_resume_dir', { shell, projectRoot, cwd, sessionId })
+  return invoke<string | null>('agent_live_session_resume_dir', { shell, configDir, cwd, sessionId })
 }
 
 // Claude Code の hook からのアカウント申告（#299）

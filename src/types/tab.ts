@@ -1,5 +1,6 @@
 import type { AgentId, AgentSessionRef } from '../lib/agents'
 import type { ProjectPlatform } from '../lib/projectPaths'
+import type { DbTarget } from './db'
 
 export type ShellType =
   | { kind: 'wsl'; distro: string }
@@ -163,6 +164,24 @@ export function runInDir(shell: ShellType, dir: string, command: string): string
   if (isPowershellFamily(shell.kind))
     return `Push-Location -LiteralPath ${quoted}; if ($?) { ${command}; Pop-Location }`
   return `(cd ${quoted} && ${command})`
+}
+
+/**
+ * 環境変数を 1 つ付けて `command` を走らせる 1 行（#633。別のアカウントの Claude のセッションを
+ * `CLAUDE_CONFIG_DIR` を付けて再開する）。
+ *
+ * - bash 系は `NAME=value command`（その 1 コマンドにだけ効く）
+ * - cmd は `set "NAME=value" && command`（`types.rs` の `run_shell_line_env` と同じ形）
+ * - PowerShell は `$env:NAME=value; command`
+ *
+ * **cmd と PowerShell では、そのシェルにも残る**（1 コマンドだけに付ける書き方が無い）。
+ * 再開のために開く新しいタブで使うので、そのシェルが同じアカウントを見続けても困らない。
+ * `name` は呼び出し側の定数だけを渡す（引用しない）。
+ */
+export function withEnv(shell: ShellType, name: string, value: string, command: string): string {
+  if (shell.kind === 'cmd') return `set "${name}=${value.replace(/"/g, '')}" && ${command}`
+  if (isPowershellFamily(shell.kind)) return `$env:${name}=${quoteArg(shell, value)}; ${command}`
+  return `${name}=${quoteArg(shell, value)} ${command}`
 }
 
 /**
@@ -377,6 +396,23 @@ export type DockerLogsTab = {
   pinned: boolean
   containerId: string
   containerName: string
+}
+
+/**
+ * 簡易 DB ビューワ（#632）。接続できた接続先を 1 つ持ち、テーブルと表示（中身 / 列の定義）を
+ * タブの中で選ぶ。接続先を選ぶのは DB パネルと接続のダイアログ（`stores/db.ts`）。
+ *
+ * **セッションには残さない**（`target` にパスワードが入りうるうえ、接続はコンテナの寿命に
+ * 縛られる）。`key` は `lib/dbViewer.ts` の `connectionKey` で、同じ接続先のタブがあれば
+ * それを前に出す。
+ */
+export type DbTab = {
+  id: string
+  kind: 'db'
+  title: string
+  pinned: boolean
+  target: DbTarget
+  key: string
 }
 
 export type DiffTab = {
@@ -634,10 +670,20 @@ export function isSingletonTab(kind: Tab['kind']): boolean {
   return (SINGLETON_KINDS as readonly string[]).includes(kind)
 }
 
+/**
+ * 同じ接続先を開いている DB ビューワのタブ（#632。`key` は `connectionKey`）。**今のプロジェクトの
+ * タブだけを見る**: `tabs` には保持中の別プロジェクトのタブも入っているので、それを前に出すと
+ * タブバーに無いタブが選ばれ、選択と表示が食い違う（`addHistoryTab` などと同じ）。
+ */
+export function findDbTab(tabs: Tab[], key: string, projectId: string): (DbTab & TabOwner) | undefined {
+  return tabs.find((t): t is Tab & DbTab => t.kind === 'db' && t.key === key && t.projectId === projectId)
+}
+
 export type Tab = (
   | TerminalTab
   | EditorTab
   | DockerLogsTab
+  | DbTab
   | DiffTab
   | PreviewTab
   | HistoryTab
@@ -691,6 +737,7 @@ export const SIDEBAR_PANELS = [
   'search',
   'diagnostics',
   'docker',
+  'db',
   'projects',
   'tasks',
   'issues',
