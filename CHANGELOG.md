@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-11-21
+
 ### Features
 
 - **大きなファイルを全体まで見て、行の単位で編集・保存できるビューアを足した**：エディタで開ける大きさを超えたファイルで、開き方の選択肢に「大きなファイルビューアで開く」が増えました。中身をメモリに読み込まず、見えている行だけをファイルから読むので、1GB のログも開いてすぐに先頭が見えます。行番号への移動、ファイル全体の検索（件数つき、一致の一覧つき）、末尾への追従、書き足されたログの自動の読み直しができます。行をダブルクリックすると書き換えられ、取り消し・やり直しと `Ctrl+S` での保存もできます。ステータスバーで文字コードを指定して開き直せます。別の文字コードに変換して保存もできます。行番号のクリックや `Shift` を押しながらの移動で画面の外まで行を選び、まとめてコピーできます。編集で増えるメモリは書き換えた行の分だけです (#630)
@@ -2027,6 +2029,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.74.0]: https://github.com/kan/pike/releases/tag/v0.74.0
 [0.73.0]: https://github.com/kan/pike/releases/tag/v0.73.0
 [0.72.0]: https://github.com/kan/pike/releases/tag/v0.72.0
 [0.71.0]: https://github.com/kan/pike/releases/tag/v0.71.0
