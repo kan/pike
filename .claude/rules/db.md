@@ -2,6 +2,7 @@
 paths:
   - "src-tauri/src/db/**"
   - "src/components/tabs/DbTab.vue"
+  - "src/components/tabs/RedisTab.vue"
   - "src/components/panels/DbPanel.vue"
   - "src/components/DbConnectDialog.vue"
   - "src/stores/db.ts"
@@ -14,9 +15,10 @@ paths:
 # 簡易 DB ビューワ（#632）実装ルール
 
 MySQL / PostgreSQL のテーブルの一覧・レコード・スキーマを表で見て、CSV / TSV でコピー・保存する。
-入力した SQL も実行する（#646。下の「入力した SQL」）。
+入力した SQL も実行する（#646。下の「入力した SQL」）。Redis のキーと値も見る（#647。下の「Redis」）。
 接続先はローカル（ホスト）・WSL・Docker コンテナだけ。実体は `src-tauri/src/db/`（`mod.rs` が
-実行、`sql.rs` が SQL と出力の読み方）、`src/components/tabs/DbTab.vue`、`src/lib/dbViewer.ts`。
+実行、`sql.rs` が SQL と出力の読み方、`redis.rs` が Redis）、`src/components/tabs/DbTab.vue` と
+`RedisTab.vue`、`src/lib/dbViewer.ts`。
 UI の「レコード」はコードでは `rows`（`db_rows` / `view === 'rows'`）のまま。
 
 ## やらないこと（広げるときは issue から）
@@ -24,8 +26,8 @@ UI の「レコード」はコードでは `rows`（`db_rows` / `view === 'rows'
 - **テーブルの一覧・スキーマ・レコードのクエリに、入力した文字列を混ぜない**（下の「発行する SQL」）。
   入力した SQL は `db_execute` の 1 つの口だけが受ける
 - 入力した SQL の実行の中止、書き込み系の文の確認ダイアログ、全件の書き出し（SQL の結果の保存は表示した行だけ）
-- Redis などほかの DB は別の issue（Redis は #647）
-- SSH 踏み台・リモートホスト（musql の領分）、MySQL / PostgreSQL 以外（SQLite など）
+- Redis への書き込み（`SET` / `DEL` / `EXPIRE` など）と、任意のコマンドの実行。Redis は読むだけ（下の「Redis」）
+- SSH 踏み台・リモートホスト（musql の領分）、MySQL / PostgreSQL / Redis 以外（SQLite など）。Redis の TLS（`rediss://`）
 - 接続情報の管理画面（保存した接続はパネルの行から消せるだけ。下の「接続の保存」）。**パスワードは保存
   しない**（localStorage・セッション・設定のどれにも書かない）。DB のタブはセッションにも残さない
   （`snapshotSession` の対象外のまま）
@@ -171,8 +173,8 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
     入り切らない行は入るぶんだけ（文字の途中で切らずに）残す（捨てると、最初の行が長いだけでログが空になる）
   - **改行の来ていない 1 行も `LOG_LINE_CAP` までしか溜めない**（`RecordReader::append_pending`。超えたぶんは読み捨て、
     出力は最後まで読む）。`LOG_LINE_CAP` は `LOG_MAX_BYTES` より 4 バイト大きい: 切ったあと文字の境界まで最大 3 バイト
-    戻すので、同じ値だと残る行が上限より短くなり、`LogSink` が `truncated` を立てない（Copilot のレビュー）。上限が `LogSink` だけだと、改行が来るまで 1 行を丸ごと持つ（`repeat('x', 268435456)` の
-    1 行で 256 MiB）。**表の形の行は切らない**（PostgreSQL の CSV は引用符の中の行が崩れ、書き出しは値を丸ごと要る）
+    戻すので、同じ値だと残る行が上限より短くなり、`LogSink` が `truncated` を立てない（Copilot のレビュー）。
+    上限が `LogSink` だけだと、改行が来るまで 1 行を丸ごと持つ（`repeat('x', 268435456)` の 1 行で 256 MiB）。**表の形の行は切らない**（PostgreSQL の CSV は引用符の中の行が崩れ、書き出しは値を丸ごと要る）
   - **エラーのときは、それまでのログを前に付けて返す**（`Outcome::Failed` が sink を持ち帰る）。複数の文は失敗した
     文の前まで実行されて確定している（MySQL は `--force` を付けないので止まる、PostgreSQL は `ON_ERROR_STOP=1`）
 - **表は `ROW_LIMIT` 行まで持つ**（`Collect` の `limit`。SQL に `LIMIT` を足せないので、超えた行は読み捨てる）。
@@ -189,9 +191,86 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
   中身で決めると、空白だけを選んだときに全体へ戻り、選んでいない文まで実行する（空白だけの選択は何もしない）。
   キーは `Mod+Enter`（`matchChord`。`KeyboardShortcuts.vue` とマニュアルの DB ビューワの節）
 
+## Redis（#647）
+
+キーの一覧と、型に合わせた値を見る。**読むだけで、書き込むコマンドも任意のコマンドも送らない。**
+実体は `src-tauri/src/db/redis.rs` と `src/components/tabs/RedisTab.vue`。
+
+- **ドライバのクレートは入れず、接続先の環境にある `redis-cli`（無ければ `valkey-cli`）を起こす。** 経路（コンテナの
+  exec・シェル）とクライアントの解決は SQL の DB と同じ `Route::run`（`ClientCall`）を通す。経路ごとの事情（WSL の `sh`、
+  コンテナの `--version` の確認、標準入力を環境変数で流し込む形）は上の節のまま当てはまる
+- **SQL の `Engine` に `Redis` を足さない。** フロントの `DbEngine` は `'redis'` を持つ（パネルの候補・接続のダイアログ・
+  保存した接続・`.env` をそのまま使い回すため）が、Rust の `sql::Engine` は SQL の DB だけで、Redis は別のコマンド
+  （`redis_probe` / `redis_keys` / `redis_value` / `redis_container_defaults`）を通る。足すと `sql.rs` の分岐が
+  全部 Redis の腕を要求する。接続先は `DbTarget` と同じ形の `RedisTarget`（`engine` は読まない）
+- **タブの種別は `db` のまま、中身だけ替える**（`TabPane.vue` の `componentOf`）。接続・同じ接続先を前に出す・
+  「接続先を変える」・DB の切り替えは SQL の DB と同じ `dbStore.open` を通る。「接続先を変える」で種類が変わりうるので、
+  `v-memo` の鍵にも `componentOf` の答えを入れてある。つないだときに読んだものは `takeRedisPrefetched` で受ける
+- **出力は `redis-cli -2 --quoted-json`**（7.0 から）。応答が 1 行に 1 つの JSON で届く（実測）
+  - **RESP2（`-2`）で話す。** RESP3 だと zset の score を double のまま出すので、`-inf` / `inf` が JSON として読めない
+    （`[["a",-inf]]`。実測）。RESP2 では文字列で届き、ほかのコマンドの形は変わらない（実測）
+  - **`--json` ではなく `--quoted-json`。** `--json` は UTF-8 でないバイトを生のまま行に入れ（実測）、行を文字列にした
+    時点で置換文字に化けて元のバイトが失われる（値は文字化けし、バイナリのキーは引き直せない）。`--quoted-json` は
+    文字列を redis-cli の表記（`a\xff\x01\n\xe3\x81\x82`。日本語も `\xHH`）で返すので、`unquote` でバイト列に戻す
+  - **エラーは終了コード 0 のまま `error:"..."` の行で届く**（実測。認証の失敗も `NOAUTH` の行）。行ごとに見る
+    （`parse_reply`）
+  - `INFO` は `--json` でも生の行で届き、**エラーも `error:` の印の無い生の行**（`NOAUTH Authentication required.`）で
+    届く（どちらも実測）。`INFO keyspace` は別に呼んで行として読み、見出しと `dbN:` 以外の行をエラーにする（`keyspace_reply`）
+  - 接続を確かめる `PING` は送らない。`redis_probe` は先にキーの一覧（`SCAN`）を読み、そこで接続と認証の失敗を返す
+  - **DB の一覧（`INFO keyspace`）が読めなくても止めない。** `INFO` は ACL の `@dangerous` に入るので、`-@dangerous` の
+    ユーザーは `NOPERM` になる（実測）が、キーは読める。そのときは今の DB だけを選択欄に出す
+  - 1 行が 1 つの JSON なので、切った行は読めない。1 行も全体も `OUTPUT_MAX_BYTES`（64 MiB）までにして、超えたら
+    溢れのエラーにする（`RecordReader::lines(LINE_CAP)`）。要素の数は問い合わせで絞る（下）が、list の要素の 1 つが
+    大きければ 1 行は大きくなる
+  - **標準入力で送ると、つながらなくても終了コードは 0 のまま、出力が空で stderr にだけ `Could not connect ...` が出る**
+    （実測）。出力が空で stderr があれば、それをエラーにする（`lines`）。失敗して stderr が空なら stdout の `error:` の行を使う
+  - `-2` か `--quoted-json` を知らない古い `redis-cli` は `db-redis-cli-no-json` で更新を促す（`client_error`）。
+    見るのは `Unrecognized option or bad number of args for: '--quoted-json'` の形だけ（`-json` の綴りだけで見ると、
+    ホスト名に `-json` を含む接続先の接続のエラーまで古いと言う）
+- **バイナリは musql と同じ規則で見せる**（`as_text` / `escape`）。UTF-8 として読めて制御文字を含まなければ文字のまま
+  （値は改行とタブも許す）。そうでなければ `\` `"` 改行などと、制御文字・UTF-8 でないバイトだけを redis-cli の表記
+  （`\\` `\"` `\n` `\xHH`）にし、日本語などの読める文字は残す。string の値には「バイナリ」の帯を出す（`RedisValue::binary`）。
+  表のセル（hash の値など）も同じ規則で書く。画像のプレビューは持たない（musql は持つ）
+  - **キー名はバイト列で持つ。** キー名は一覧の 1 行なので改行やタブもバイナリとして表記にし、バイト列を 16 進で
+    フロントへ渡す（`RedisKey::raw`）。値はそのバイト列で引く（`key_bytes`）。表記からは引き直せない（文字どおり
+    `a\xff` という名前のキーと区別できない）ので、フロントの同一性も `raw` で見る（`RedisTab.vue` の `keyId`）
+  - `GETRANGE` で切った値の末尾の割れた文字は落とす（`trim_cut_character`。表記の末尾が `\xHH` にならないように）
+- **パスワードは `REDISCLI_AUTH` の環境変数で渡す**（引数の `-a` に載せない。`--no-auth-warning` で注意書きを消す）。
+  コンテナの既定は `REDIS_PASSWORD`（Bitnami）と `VALKEY_PASSWORD`。公式イメージは環境変数に持たない
+  （`--requirepass` を起動の引数で渡す）ので、押すと認証に失敗して接続のダイアログが出る
+- **キーとパターンの渡し方**: 1 つのコマンドは argv の 1 語ずつ（`call`）。いくつかをまとめるときは標準入力の 1 行ずつで、
+  **全部のバイトを `"\xHH"` で逃がす**（`quote_arg`。`redis-cli` の行の読み方は `\xHH` を戻す。空白・引用符・改行を
+  含むキーで実測）。どちらもキーの中身でコマンドが変わることはない。**キーは必ず標準入力で渡す**（argv は文字列
+  なので、バイナリのキーを載せられない。argv で渡すのはパターンと `SCAN` の cursor だけ）
+- **キーの一覧は `SCAN ... MATCH pattern COUNT 1000` を回す**（`keys`）。`KEY_LIMIT`（5,000 件）か `SCAN_CALLS_MAX`
+  （50 回）で止めて `truncated`（パターンに合うキーが少ない大きな DB では、1 回の `SCAN` がほとんど返さないまま全体を
+  歩くので、回数でも止める）。型は `TYPE` を標準入力でまとめて引く。`KEYS` は使わない（サーバーを止める）
+  - **まとめて送る標準入力は `BATCH_MAX_BYTES`（512 KiB）ずつに分ける**（`batch_scripts`）。コンテナの経路は標準入力を
+    環境変数で渡すので `CONTAINER_SQL_MAX`（1 MiB）までで、`quote_arg` で 1 バイトが 4 バイトになる。5,000 件の
+    長いキー（Laravel のキャッシュなど）の `TYPE` は 1 回では届かない。1 行で上限を超える長いキー（約 128 KiB 超）は
+    型を引かずに空のまま出す（そのキー 1 つで一覧ごと読めなくならないように）
+- **値は型ごとに先頭だけを読む**（`redis_value`。`TYPE` と `TTL` を 1 回、長さと中身を 1 回）。string は
+  `GETRANGE` で `STRING_MAX_BYTES`（256 KiB）、list は `LRANGE`、zset は `ZRANGE ... WITHSCORES`、stream は
+  `XRANGE ... COUNT` で `ROW_LIMIT`（2,000）まで。hash と set は `HSCAN` / `SSCAN` を 1 回（`COUNT` は目安なので
+  前後した数を返す。cursor が 0 でなければ `truncated`）。`HGETALL` / `SMEMBERS` は全件を返すので使わない
+  - `COUNT` は目安なので、小さい hash や set（listpack / intset）は 1 回で全部が返り、`ROW_LIMIT` を超えうる。見せるのは
+    `ROW_LIMIT` 行までで、超えたぶんは切って `truncated`（`shape_value`）
+  - zset は RESP2 の平らな `[member, score, ...]` で来る（`shape_value`）
+  - string の `truncated` は長さ（`STRLEN`）が `STRING_MAX_BYTES` を超えたかで決める。読んだ文字の長さと比べると、
+    `GETRANGE` が文字の途中で切ったぶんや UTF-8 でないバイトが置換文字（3 バイト）に化けて長くなり、切ったのに気付けない
+  - モジュールの型（`ReJSON-RL` など）は種類だけを見せる
+- 表は SQL の DB と同じ CSV プレビューの部品。コピーと保存は表示している値だけ（string は本文、ほかは CSV / TSV）
+- 入口は SQL の DB と同じ DB パネル。コンテナはイメージ名で選ぶ。**リポジトリ名の全体で当てる**（`redis` / `valkey` /
+  `keydb` と、その `-stack` / `-stack-server` / `-cluster`）。部分一致だと `redisinsight` や `redis_exporter` のような
+  道具も拾い、押すと `redis-cli` が無いと出る。`.env` は名前が `REDIS_URL` で終わるものと Laravel の `REDIS_HOST` /
+  `REDIS_PORT` / `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_DB`（**Laravel の `env()` は文字の `null` / `(null)` を
+  null に読む**。既定の `.env` は `REDIS_PASSWORD=null`。どの欄も空として読む）。TLS の `rediss://` は読まない
+- DB は番号で選ぶ（接続のダイアログの欄は「DB 番号」、空なら 0）。**数でない値を 0 に読み替えない**
+  （`db-redis-bad-database:`。読み替えると、別の DB を見ていると気付けない）
+
 ## パスワード
 
-- **引数に載せない**（`ps` で見える）。`MYSQL_PWD` / `PGPASSWORD` の環境変数で渡す。WSL へは
+- **引数に載せない**（`ps` で見える）。`MYSQL_PWD` / `PGPASSWORD`（Redis は `REDISCLI_AUTH`）の環境変数で渡す。WSL へは
   `ShellConfig::command_env` が `WSLENV` を足して届ける。コンテナは exec の `env`
   - `MYSQL_PWD` は MySQL 8.0 で非推奨と告知されているが、8.x と MariaDB の `mariadb` では動く（実測）。
     消えたら `--defaults-extra-file` に一時ファイルを渡す形に替える
@@ -290,10 +369,10 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
   持つことになり、片方だけ直す事故が起きる。つないだときに読んだテーブルの一覧はタブへ渡して使い回す
   （`takePrefetched`。同じ問い合わせを 2 回流さない）
 - DB のコンテナかは**イメージ名で決める**（`dbEngineOfImage`。リポジトリ名の最後の部分に `mysql` /
-  `mariadb` / `percona` / `postgres` / `postgis` / `timescaledb` / `pgvector`）。compose に属さない
-  コンテナも出す（`dockerStore.containers` 全体から選ぶ）
-- `.env` はプロジェクトのルートの `*DATABASE_URL` / `DB_URL` と Laravel の `DB_*` を読む。読むのはパネルを
-  開いたときと、ルートが変わったとき（`loadEnv`）
+  `mariadb` / `percona` / `postgres` / `postgis` / `timescaledb` / `pgvector`。Redis の当て方は上の「Redis」）。
+  compose に属さないコンテナも出す（`dockerStore.containers` 全体から選ぶ）
+- `.env` はプロジェクトのルートの `*DATABASE_URL` / `DB_URL` と Laravel の `DB_*` を読む（Redis の `*REDIS_URL` と
+  `REDIS_*` は上の「Redis」）。読むのはパネルを開いたときと、ルートが変わったとき（`loadEnv`）
 
 ## 接続の保存
 

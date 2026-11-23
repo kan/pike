@@ -35,6 +35,7 @@ const PreviewTab = defineAsyncComponent(() => import('../tabs/PreviewTab.vue'))
 const HistoryTab = defineAsyncComponent(() => import('../tabs/HistoryTab.vue'))
 const DockerLogsTab = defineAsyncComponent(() => import('../tabs/DockerLogsTab.vue'))
 const DbTab = defineAsyncComponent(() => import('../tabs/DbTab.vue'))
+const RedisTab = defineAsyncComponent(() => import('../tabs/RedisTab.vue'))
 const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue'))
 const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab.vue'))
 const AgentSessionsTab = defineAsyncComponent(() => import('../tabs/AgentSessionsTab.vue'))
@@ -70,6 +71,16 @@ const TAB_COMPONENTS: Record<Tab['kind'], unknown> = {
   commit: CommitTab,
   changes: ChangesTab,
   browser: BrowserTab,
+}
+
+/**
+ * タブの中身。**DB のタブだけは接続先の種類で分ける**（Redis、#647）。接続・保存・同じ接続先を前に
+ * 出す流れは SQL の DB と同じ `db` の種別を通すので、種別を分けずに中身だけを替える。「接続先を変える」で
+ * 種類が変わりうるので、`v-memo` の鍵にもこの答えを入れる。
+ */
+function componentOf(tab: Tab): unknown {
+  if (tab.kind === 'db' && tab.target.engine === 'redis') return RedisTab
+  return TAB_COMPONENTS[tab.kind]
 }
 
 const { t } = useI18n()
@@ -226,11 +237,11 @@ function resetSplit() {
       <Teleport
         v-for="tab in tabStore.tabs"
         :key="tab.id"
-        v-memo="[paneTarget(tab), tabStore.isTabVisible(tab.id), tab.kind]"
+        v-memo="[paneTarget(tab), tabStore.isTabVisible(tab.id), componentOf(tab)]"
         :to="paneTarget(tab)"
       >
         <div v-show="tabStore.isTabVisible(tab.id)" class="tab-host">
-          <component :is="TAB_COMPONENTS[tab.kind]" :tab-id="tab.id" />
+          <component :is="componentOf(tab)" :tab-id="tab.id" />
         </div>
       </Teleport>
     </template>

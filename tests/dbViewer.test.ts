@@ -9,6 +9,7 @@ import {
   dbCandidatesFromEnv,
   dbEngineOfImage,
   dbResultToCsv,
+  defaultPort,
   formatDbResult,
   judgeProbe,
   missingClients,
@@ -29,8 +30,17 @@ test('イメージ名から DB の種類を当てる', () => {
   assert.equal(dbEngineOfImage('postgres:16-alpine'), 'postgres')
   assert.equal(dbEngineOfImage('postgis/postgis:16-3.4'), 'postgres')
   assert.equal(dbEngineOfImage('ghcr.io/me/app:latest'), null)
-  // タグや digest の中の語では当てない。
-  assert.equal(dbEngineOfImage('redis:mysql-compat'), null)
+  // Redis と、`redis-cli` の通じる互換のもの（#647）。
+  assert.equal(dbEngineOfImage('redis:7.4'), 'redis')
+  assert.equal(dbEngineOfImage('bitnami/redis:7.2'), 'redis')
+  assert.equal(dbEngineOfImage('valkey/valkey:8'), 'redis')
+  assert.equal(dbEngineOfImage('redis/redis-stack-server:7.4.0'), 'redis')
+  // Redis の道具のイメージは拾わない（`redis-cli` を持たない）。
+  assert.equal(dbEngineOfImage('redis/redisinsight:2'), null)
+  assert.equal(dbEngineOfImage('oliver006/redis_exporter'), null)
+  // タグや digest の中の語では当てない（`redis:mysql-compat` は Redis で、MySQL ではない）。
+  assert.equal(dbEngineOfImage('redis:mysql-compat'), 'redis')
+  assert.equal(dbEngineOfImage('nginx:mysql-compat'), null)
   assert.equal(dbEngineOfImage('nginx@sha256:postgres'), null)
 })
 
@@ -110,7 +120,10 @@ test('DATABASE_URL を読む', () => {
   const v6 = parseDatabaseUrl('postgresql://u:pw@[::1]:5432/app')
   assert.deepEqual([v6?.host, v6?.port, v6?.database, v6?.password], ['::1', 5432, 'app', 'pw'])
   assert.equal(parseDatabaseUrl('mysql://[fe80::1%25eth0]/db')?.host, 'fe80::1%25eth0')
-  assert.equal(parseDatabaseUrl('redis://localhost:6379'), null)
+  // Redis（#647）は読む。TLS の `rediss://` は読まない。
+  assert.equal(parseDatabaseUrl('redis://localhost:6379')?.engine, 'redis')
+  assert.equal(parseDatabaseUrl('rediss://localhost:6379'), null)
+  assert.equal(parseDatabaseUrl('amqp://localhost'), null)
   assert.equal(parseDatabaseUrl('not a url'), null)
 })
 
@@ -137,6 +150,29 @@ test('.env から候補を拾う', () => {
   )
   // 引用符で囲んだ値は、中の `#` を残して後ろのコメントだけ捨てる。
   assert.equal(got[2].password, 'se#cret')
+})
+
+test('.env から Redis の候補を拾う', () => {
+  const env = [
+    'REDIS_URL=redis://:pw@127.0.0.1:6380/2',
+    'CACHE_REDIS_URL=rediss://cache:6379/0',
+    'DB_CONNECTION=redis',
+    'REDIS_HOST=127.0.0.1',
+    'REDIS_PASSWORD=null',
+    'REDIS_USERNAME=(null)',
+    'REDIS_PORT=6379',
+  ].join('\n')
+  const got = dbCandidatesFromEnv(env)
+  assert.deepEqual(
+    got.map((c) => [c.source, c.engine, c.host, c.port, c.user, c.password, c.database]),
+    [
+      ['REDIS_URL', 'redis', '127.0.0.1', 6380, '', 'pw', '2'],
+      // Laravel の `env()` は `null` / `(null)` を null に読む（既定の `.env` は `REDIS_PASSWORD=null`）。
+      ['REDIS_HOST', 'redis', '127.0.0.1', 6379, '', '', ''],
+    ],
+  )
+  // TLS の `rediss://` と、`DB_CONNECTION=redis` は拾わない。
+  assert.equal(defaultPort('redis'), 6379)
 })
 
 test('同じ接続先の DB タブは今のプロジェクトのものだけを使い回す', () => {
@@ -172,6 +208,10 @@ test('接続先の同一性はパスワードを含めず、空の欄と未指�
   assert.notEqual(connectionKey(a), connectionKey({ ...a, port: 3307 }))
   assert.notEqual(connectionKey(a), connectionKey({ ...a, via: { kind: 'shell', shell: { kind: 'cmd' } } }))
   assert.equal(connectionKey({ engine: 'postgres', via: { kind: 'container', containerId: 'x' } }), 'container:x')
+  // Redis の DB 番号は、空と 0 が同じ DB。
+  const r: DbTarget = { engine: 'redis', via: { kind: 'shell', shell: wsl }, host: '127.0.0.1' }
+  assert.equal(connectionKey(r), connectionKey({ ...r, database: '0' }))
+  assert.notEqual(connectionKey(r), connectionKey({ ...r, database: '1' }))
 })
 
 test('候補はコンテナ・保存した接続・.env の順で、.env と同じ保存した接続には .env のパスワードを持たせる', () => {

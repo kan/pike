@@ -2,7 +2,19 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type { AgentSession } from '../types/agentSession'
 import type { AgentUsage } from '../types/agentUsage'
 import type { CiAction, CiConfigs, CiJob, CiListResult, CiProvider } from '../types/ci'
-import type { DbContainerDefaults, DbDumpFormat, DbEngine, DbExec, DbProbe, DbResult, DbTarget } from '../types/db'
+import type {
+  DbContainerDefaults,
+  DbDumpFormat,
+  DbEngine,
+  DbExec,
+  DbProbe,
+  DbResult,
+  DbTarget,
+  RedisKey,
+  RedisKeyList,
+  RedisProbe,
+  RedisValue,
+} from '../types/db'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
@@ -1408,8 +1420,27 @@ export async function dockerContainerPorts(containerId: string): Promise<number[
 // DB ビューワ（#632）。一覧・スキーマ・レコードの SQL は Rust が組む固定のもので、渡せるのは
 // テーブル名だけ。入力した SQL は `dbExecute`（#646）だけが渡す。
 
+/** コンテナの環境変数から読んだ接続の既定。Redis は別のコマンド（パスワードの有無だけ）を通る。 */
 export async function dbContainerDefaults(containerId: string, engine: DbEngine): Promise<DbContainerDefaults> {
+  if (engine === 'redis') return invoke<DbContainerDefaults>('redis_container_defaults', { containerId })
   return invoke<DbContainerDefaults>('db_container_defaults', { containerId, engine })
+}
+
+// Redis ビューワ（#647）。送るのは読むだけの固定のコマンドで、渡せるのはパターンとキーの名前だけ。
+
+/** 接続を確かめ、DB の一覧と今の DB のキーの一覧を返す。 */
+export async function redisProbe(target: DbTarget): Promise<RedisProbe> {
+  return invoke<RedisProbe>('redis_probe', { target })
+}
+
+/** パターン（`SCAN` の `MATCH`）に合うキーの一覧。 */
+export async function redisKeys(target: DbTarget, pattern: string): Promise<RedisKeyList> {
+  return invoke<RedisKeyList>('redis_keys', { target, pattern })
+}
+
+/** 1 つのキーの値（型に合わせて先頭だけ）。キーは一覧のもの（バイナリの名前は `raw` のバイト列で引く）。 */
+export async function redisValue(target: DbTarget, key: RedisKey): Promise<RedisValue> {
+  return invoke<RedisValue>('redis_value', { target, key: key.name, raw: key.raw })
 }
 
 /**

@@ -6,7 +6,7 @@
  */
 
 import { t } from '../i18n'
-import type { DbDumpFormat, DbEngine, DbProbe, DbResult, DbTable, DbTarget, DbVia } from '../types/db'
+import type { DbDumpFormat, DbEngine, DbProbe, DbResult, DbTable, DbTarget, DbVia, SqlEngine } from '../types/db'
 import { type ShellType, shellFromId, shellId, shellProfileLabel } from '../types/tab'
 import type { CsvData } from './csvPreview'
 
@@ -19,12 +19,16 @@ export function dbEngineOfImage(image: string): DbEngine | null {
   const last = repo.slice(repo.lastIndexOf('/') + 1).split(':')[0]
   if (/mysql|mariadb|percona/.test(last)) return 'mysql'
   if (/postgres|postgis|timescaledb|pgvector/.test(last)) return 'postgres'
+  // Redis と、`redis-cli` の通じる互換のもの（Valkey は `valkey-cli` も持つ）。**名前の全体で当てる**:
+  // 部分一致だと `redisinsight` / `redis-commander` / `redis_exporter` のような道具も拾い、押すと
+  // `redis-cli` が無いと出る。
+  if (/^(redis|valkey|keydb)(-(stack|stack-server|cluster))?$/.test(last)) return 'redis'
   return null
 }
 
 /** 既定のポート（入力欄のプレースホルダ）。 */
 export function defaultPort(engine: DbEngine): number {
-  return engine === 'mysql' ? 3306 : 5432
+  return { mysql: 3306, postgres: 5432, redis: 6379 }[engine]
 }
 
 /** 結果を CSV プレビューの表にする。セルは Rust が分けたまま渡す（NULL は `null` のまま）。 */
@@ -107,13 +111,20 @@ export interface DbConnCandidate {
   database: string
 }
 
-const URL_ENGINES: Record<string, DbEngine> = {
+/** SQL の DB のスキームと、Laravel の `DB_CONNECTION` のドライバ名。 */
+const SQL_DRIVERS: Record<string, SqlEngine> = {
   mysql: 'mysql',
   mysql2: 'mysql',
   mariadb: 'mysql',
   postgres: 'postgres',
   postgresql: 'postgres',
   pgsql: 'postgres',
+}
+
+const URL_ENGINES: Record<string, DbEngine> = {
+  ...SQL_DRIVERS,
+  // TLS の `rediss://` は読まない（`redis-cli` に `--tls` を渡す経路を持たない）。
+  redis: 'redis',
 }
 
 /**
@@ -170,17 +181,19 @@ export function parseDotEnv(text: string): Map<string, string> {
 /**
  * `.env` から接続の候補を拾う。`DATABASE_URL`（名前が `DATABASE_URL` で終わるものと `DB_URL`）と、
  * Laravel の `DB_CONNECTION` / `DB_HOST` / `DB_PORT` / `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD`。
+ * Redis（#647）は名前が `REDIS_URL` で終わるものと、Laravel の `REDIS_HOST` / `REDIS_PORT` /
+ * `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_DB`。
  */
 export function dbCandidatesFromEnv(text: string): DbConnCandidate[] {
   const vars = parseDotEnv(text)
   const out: DbConnCandidate[] = []
   for (const [key, value] of vars) {
-    if (!(key.endsWith('DATABASE_URL') || key === 'DB_URL')) continue
+    if (!(key.endsWith('DATABASE_URL') || key === 'DB_URL' || key.endsWith('REDIS_URL'))) continue
     const c = parseDatabaseUrl(value, key)
     if (c) out.push(c)
   }
   const conn = vars.get('DB_CONNECTION')?.toLowerCase()
-  const engine = conn ? URL_ENGINES[conn] : undefined
+  const engine = conn ? SQL_DRIVERS[conn] : undefined
   if (engine) {
     out.push({
       source: 'DB_CONNECTION',
@@ -190,6 +203,24 @@ export function dbCandidatesFromEnv(text: string): DbConnCandidate[] {
       user: vars.get('DB_USERNAME') ?? '',
       password: vars.get('DB_PASSWORD') ?? '',
       database: vars.get('DB_DATABASE') ?? '',
+    })
+  }
+  const redisHost = vars.get('REDIS_HOST')
+  if (redisHost) {
+    // Laravel の `env()` は文字の `null` / `(null)` を null に読む（既定の `.env` はパスワードの無いことを
+    // `REDIS_PASSWORD=null` と書く）。どの欄も同じく空にする。
+    const get = (name: string) => {
+      const v = vars.get(name) ?? ''
+      return ['null', '(null)'].includes(v.toLowerCase()) ? '' : v
+    }
+    out.push({
+      source: 'REDIS_HOST',
+      engine: 'redis',
+      host: redisHost,
+      port: parsePort(get('REDIS_PORT')),
+      user: get('REDIS_USERNAME'),
+      password: get('REDIS_PASSWORD'),
+      database: get('REDIS_DB'),
     })
   }
   return out
@@ -237,7 +268,8 @@ export function connectionKey(target: DbTarget): string {
     target.host ?? '',
     target.port ?? '',
     target.user ?? '',
-    target.database ?? '',
+    // Redis（#647）の DB 番号は、空と 0 が同じ DB（`db::redis::database_index`）。
+    target.engine === 'redis' ? (target.database ?? '').trim() || '0' : (target.database ?? ''),
   ]
   return `shell:${JSON.stringify(parts)}`
 }
@@ -277,7 +309,11 @@ export function describeShellTarget(target: DbTarget): string {
 }
 
 /** 種類の表示名（ダイアログの選択肢、タブとパネルの添え書き）。 */
-export const ENGINE_LABELS: Record<DbEngine, string> = { mysql: 'MySQL / MariaDB', postgres: 'PostgreSQL' }
+export const ENGINE_LABELS: Record<DbEngine, string> = {
+  mysql: 'MySQL / MariaDB',
+  postgres: 'PostgreSQL',
+  redis: 'Redis',
+}
 
 /** `.env` の候補から接続先を組む（`savedToTarget` と対。パスワードは `.env` に書いてあれば入る）。 */
 function envToTarget(e: DbConnCandidate, shell: ShellType): DbTarget {
@@ -395,6 +431,12 @@ const PSQL_NO_RESTRICT = 'db-psql-no-restrict'
 /** 入力した SQL が空白・コメント・`;` だけだったときのエラー（`db::SQL_EMPTY`）。 */
 const SQL_EMPTY = 'db-sql-empty'
 
+/** `redis-cli` が `--json` を知らない（7.0 より古い）ときのエラー（`db::redis::REDIS_CLI_NO_JSON`）。 */
+const REDIS_CLI_NO_JSON = 'db-redis-cli-no-json'
+
+/** Redis の DB 番号が数でないとき（`db::redis::REDIS_BAD_DATABASE`。後ろに入れた値が付く）。 */
+const REDIS_BAD_DATABASE = 'db-redis-bad-database:'
+
 /**
  * 入力した SQL を、1 文も実行しないまま終えたか（クライアントのコマンド・長すぎる SQL・空の SQL・
  * 古い psql・コンテナに `sh` が無い）。それならテーブルの一覧は変わっていないので、読み直さなくてよい。
@@ -422,6 +464,8 @@ export function dbErrorText(error: unknown, target: DbTarget): string {
   if (s === CONTAINER_SH_NOT_FOUND) return t('db.containerShNotFound')
   if (s === PSQL_NO_RESTRICT) return t('db.psqlNoRestrict')
   if (s === SQL_EMPTY) return t('db.sqlEmpty')
+  if (s === REDIS_CLI_NO_JSON) return t('db.redisCliNoJson')
+  if (s.startsWith(REDIS_BAD_DATABASE)) return t('db.redisBadDatabase', { value: s.slice(REDIS_BAD_DATABASE.length) })
   const missing = missingClients(error)
   if (!missing) return s
   const via = target.via
@@ -437,7 +481,10 @@ export function parseSavedConnections(raw: unknown): DbSavedConnection[] {
   return raw.flatMap((x): DbSavedConnection[] => {
     if (typeof x !== 'object' || x === null) return []
     const o = x as Record<string, unknown>
-    const engine = o.engine === 'mysql' || o.engine === 'postgres' ? o.engine : null
+    const engine =
+      typeof o.engine === 'string' && Object.prototype.hasOwnProperty.call(ENGINE_LABELS, o.engine)
+        ? (o.engine as DbEngine)
+        : null
     // シェルの妥当性は `shellId` と `shellFromId` の往復で見る（`stores/settings.ts` の `sanitizeShell`
     // と同じ。判定を写すと、シェルの種類を増やしたときに片方だけ取り残される）。
     // ただし `shellId` は distro の無い WSL を `wsl:undefined` にして往復を通すので、distro だけは先に見る。

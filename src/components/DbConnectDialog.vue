@@ -25,6 +25,8 @@ useOverlay(() => open.value)
 const busy = computed(() => db.connecting !== null)
 const isContainer = computed(() => !!db.dialog && db.dialog.route !== SHELL_ROUTE)
 const engines = Object.entries(ENGINE_LABELS) as [DbEngine, string][]
+// Redis（#647）は DB を番号で選ぶ（空なら 0）。
+const isRedis = computed(() => db.dialog?.form.engine === 'redis')
 
 const firstInput = ref<HTMLSelectElement | null>(null)
 watch(open, (v) => {
@@ -98,7 +100,8 @@ function onKeydown(e: KeyboardEvent) {
             />
           </label>
           <label class="db-field">
-            <span>{{ t('db.database') }}</span>
+            <!-- Redis（#647）は DB を名前ではなく番号（0 から）で選ぶ。空なら 0。 -->
+            <span>{{ isRedis ? t('db.redisDatabase') : t('db.database') }}</span>
             <!-- つながったが DB を選んでいなかったときは、見られる DB を候補に出す（`judgeProbe`）。
                  選択欄にしないのは、一覧に出さないシステムの DB も打ち込めるようにするため。 -->
             <input
@@ -108,7 +111,7 @@ function onKeydown(e: KeyboardEvent) {
               spellcheck="false"
               list="db-connect-database-choices"
               data-testid="db-connect-database"
-              :placeholder="db.dialog.databaseChoices.length ? t('db.pickDatabase') : ''"
+              :placeholder="db.dialog.databaseChoices.length ? t('db.pickDatabase') : isRedis ? '0' : ''"
               :disabled="busy"
             />
             <datalist id="db-connect-database-choices">

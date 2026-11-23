@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Features
 
 - **DB ビューワで、入力した SQL を実行できるようにした**：DB タブの「SQL」に SQL を書き、「実行」か `Ctrl+Enter` で実行します。範囲を選んでいれば、その部分だけを実行します。SELECT のように結果を返す文が 1 つなら、結果をレコードと同じ表で見せ、コピーと保存もできます。DDL やデータを書き換える文、複数の文は、クライアントの出力（文ごとの結果や影響した行数）をそのまま表示します。これらも確認なしに実行するので、本番の DB にはつながないでください。実行のあとはテーブルの一覧を読み直します。`\!` のような、OS のコマンドを実行するクライアントのコマンドを含む SQL は実行しません。MySQL の `LOAD DATA LOCAL INFILE` も使えません (#646)
+- **DB ビューワで Redis のキーと値を見られるようにした**：Redis（Valkey を含む）のコンテナと `.env` の `REDIS_URL` / `REDIS_*` も DB パネルの候補になります。押すと Redis 用の DB タブが開きます。キーの一覧はパターンで絞り込めます。選んだキーの値は型に合わせて表示します（string は本文、list / hash / set / zset / stream は表）。UTF-8 として読めないバイナリのキーと値は、redis-cli と同じ `\xHH` の表記で表示します。値はコピーと保存ができます。接続先の環境にある `redis-cli`（7.0 以降）を使い、読むだけで書き込みはしません (#647)
 
 ### Changes
 

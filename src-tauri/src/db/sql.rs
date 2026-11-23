@@ -719,6 +719,8 @@ const LOG_LINE_CAP: usize = LOG_MAX_BYTES + 4;
 /// 現れないので、改行で切ってから文字列にする。
 pub struct RecordReader {
     format: LineFormat,
+    /// 改行の来ていない 1 行を溜める上限（`append_pending`）。None なら切らない。
+    line_cap: Option<usize>,
     pending: Vec<u8>,
     csv: CsvState,
 }
@@ -743,6 +745,18 @@ impl RecordReader {
         };
         RecordReader {
             format,
+            line_cap: matches!(format, LineFormat::Lines).then_some(LOG_LINE_CAP),
+            pending: Vec::new(),
+            csv: CsvState::default(),
+        }
+    }
+
+    /// 1 行を 1 つの値のレコードにし、1 行を `line_cap` までだけ溜める読み方（Redis の `redis-cli --json`）。
+    /// 1 行が 1 つの応答の JSON なので、切った行は読めない。呼び出し側は上限に届いた行を溢れとして扱う。
+    pub fn lines(line_cap: usize) -> Self {
+        RecordReader {
+            format: LineFormat::Lines,
+            line_cap: Some(line_cap),
             pending: Vec::new(),
             csv: CsvState::default(),
         }
@@ -768,11 +782,9 @@ impl RecordReader {
     /// `COPY (SELECT repeat('x', 268435456)) TO STDOUT` の 1 行で 256 MiB を持つ。
     /// **表の形は切らない**（PostgreSQL の CSV は引用符の中の行が崩れ、書き出しは値を丸ごと要る）。
     fn append_pending(&mut self, bytes: &[u8]) {
-        let take = match self.format {
-            LineFormat::Lines => LOG_LINE_CAP
-                .saturating_sub(self.pending.len())
-                .min(bytes.len()),
-            LineFormat::MysqlBatch | LineFormat::PgCsv => bytes.len(),
+        let take = match self.line_cap {
+            Some(cap) => cap.saturating_sub(self.pending.len()).min(bytes.len()),
+            None => bytes.len(),
         };
         self.pending.extend_from_slice(&bytes[..take]);
         // 切ったのが文字の途中なら、その文字ごと落とす（残りが U+FFFD に化けないように）。

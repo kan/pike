@@ -112,6 +112,7 @@ pike/
 │       │   └── tunnel.rs      # 未公開ポートへの socat ポートフォワード（#120）
 │       ├── db/
 │       │   ├── mod.rs         # 簡易 DB ビューワ（#632）。mysql / psql をコンテナ（bollard の exec）かシェルで起こす。入力した SQL の実行（`db_execute`、#646）
+│       │   ├── redis.rs       # Redis ビューワ（#647）。redis-cli --json でキーの一覧（SCAN）と型ごとの値を読む（書き込まない）
 │       │   └── sql.rs         # 発行する固定の SQL・識別子と文字列の引用・入力した SQL の流し方の判定・クライアントの出力の読み方・書き出しの整形
 │       ├── issues/
 │       │   └── mod.rs         # gh 経由の GitHub issue 一覧（#278）
@@ -221,6 +222,7 @@ pike/
 │   │       ├── HistoryTab.vue     # ファイル別 git log（git log -L 行範囲対応）
 │   │       ├── DockerLogsTab.vue  # コンテナログ（xterm 読み取り専用）
 │   │       ├── DbTab.vue          # 簡易 DB ビューワ（つなげた接続先のテーブル → レコード / スキーマと入力した SQL の実行、表は CSV プレビューの部品、#632 / #646）
+│   │       ├── RedisTab.vue       # Redis ビューワ（キーの一覧 → 型に合わせた値。DB のタブの接続先が Redis のときに TabPane が描く、#647）
 │   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
 │   │       ├── IssueTab.vue       # GitHub issue 1 件の読み取り専用表示（gh 経由、#278）
 │   │       ├── CommitTab.vue      # コミット 1 つのメッセージと全ファイルの差分（グラフ表示のクリック、#374）

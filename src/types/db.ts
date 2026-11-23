@@ -1,7 +1,13 @@
 import type { ShellType } from './tab'
 
-/** DB ビューワ（#632）が扱う DB の種類。Rust の `db::sql::Engine` と同じ綴り。 */
-export type DbEngine = 'mysql' | 'postgres'
+/**
+ * DB ビューワ（#632）が扱う DB の種類。`mysql` / `postgres` は Rust の `db::sql::Engine` と同じ綴り。
+ * `redis`（#647）は SQL の DB ではないので Rust の `Engine` には無く、別のコマンド（`db::redis`）を通る。
+ */
+export type DbEngine = 'mysql' | 'postgres' | 'redis'
+
+/** SQL の DB（`db_*` のコマンドが受ける種類）。 */
+export type SqlEngine = Exclude<DbEngine, 'redis'>
 
 /** クライアント（`mysql` / `psql`）をどこで起こすか。Rust の `db::DbVia`。 */
 export type DbVia = { kind: 'container'; containerId: string } | { kind: 'shell'; shell: ShellType }
@@ -61,3 +67,46 @@ export type DbDumpFormat = 'csv' | 'tsv'
 export type DbExec =
   | { kind: 'rows'; result: DbResult }
   | { kind: 'log'; text: string; truncated: boolean; tables: DbTable[] | null }
+
+/** Redis の DB（番号とキーの数。Rust の `db::redis::RedisDatabase`）。 */
+export interface RedisDatabase {
+  index: number
+  keys: number
+}
+
+/** Redis のキー。`kind` は `TYPE` の答え（`string` / `list` / `hash` / `set` / `zset` / `stream` など）。 */
+export interface RedisKey {
+  /** 見せる名前。バイナリの名前（UTF-8 でない・制御文字や改行を含む）は redis-cli の表記（`\xHH` など）。 */
+  name: string
+  /** バイナリの名前のバイト列（16 進）。値を開くときはこれを返す（表記からは引き直せない）。 */
+  raw: string | null
+  kind: string
+}
+
+/** キーの一覧。`truncated` は上限（5,000 件か `SCAN` の回数）で止めたか。 */
+export interface RedisKeyList {
+  keys: RedisKey[]
+  truncated: boolean
+}
+
+/** つないでみた結果（Rust の `db::redis::RedisProbe`）。今の DB のキーの一覧も持つ。 */
+export interface RedisProbe {
+  current: number
+  databases: RedisDatabase[]
+  keys: RedisKeyList
+}
+
+/** 1 つのキーの値（Rust の `db::redis::RedisValue`）。string は `text`、ほかの型は `result`（表）。 */
+export interface RedisValue {
+  kind: string
+  /** 残りの秒。期限が無ければ -1。 */
+  ttl: number
+  /** 要素の数（string はバイト数）。 */
+  length: number | null
+  text: string | null
+  result: DbResult | null
+  /** 先頭だけを読んだか。 */
+  truncated: boolean
+  /** string の値がバイナリで、`text` を redis-cli の表記で書いたか。 */
+  binary: boolean
+}
