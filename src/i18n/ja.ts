@@ -1213,6 +1213,7 @@ export default {
   'db.clientCommand':
     'クライアントのコマンド（{command}）を含む SQL は実行しません。OS のコマンドやファイルの操作が DB の権限の外で動くためです。ターミナルで実行してください',
   'db.sqlTooLong': 'コンテナへ渡せる SQL は {limit} KiB までです。分けて実行してください',
+  'db.sqlEmpty': '実行する文がありません（空白とコメントだけです）',
   'db.psqlNoRestrict':
     'この psql は古いので、SQL を実行しませんでした。クライアントのコマンドを止める \\restrict が無いためです。psql を 18 / 17.6 / 16.10 / 15.14 / 14.19 / 13.22 以降に更新してください',
   'db.containerShNotFound': 'コンテナに sh が無いので、SQL を渡せません。SQL の実行には、コンテナの中の sh を使います',

@@ -392,14 +392,19 @@ const CONTAINER_SH_NOT_FOUND = 'db-container-sh-not-found'
 /** psql が古く `\restrict` が無いので、入力した SQL を実行しなかったときのエラー（`db::PSQL_NO_RESTRICT`）。 */
 const PSQL_NO_RESTRICT = 'db-psql-no-restrict'
 
+/** 入力した SQL が空白・コメント・`;` だけだったときのエラー（`db::SQL_EMPTY`）。 */
+const SQL_EMPTY = 'db-sql-empty'
+
 /**
- * 入力した SQL を、1 文も実行しないまま終えたか（クライアントのコマンド・長すぎる SQL・古い psql・
- * コンテナに `sh` が無い）。それならテーブルの一覧は変わっていないので、読み直さなくてよい。
+ * 入力した SQL を、1 文も実行しないまま終えたか（クライアントのコマンド・長すぎる SQL・空の SQL・
+ * 古い psql・コンテナに `sh` が無い）。それならテーブルの一覧は変わっていないので、読み直さなくてよい。
  */
 export function rejectedBeforeRun(error: unknown): boolean {
   const s = String(error)
   return (
-    s.startsWith(CLIENT_COMMAND) || s.startsWith(SQL_TOO_LONG) || s === PSQL_NO_RESTRICT || s === CONTAINER_SH_NOT_FOUND
+    s.startsWith(CLIENT_COMMAND) ||
+    s.startsWith(SQL_TOO_LONG) ||
+    [SQL_EMPTY, PSQL_NO_RESTRICT, CONTAINER_SH_NOT_FOUND].includes(s)
   )
 }
 
@@ -416,6 +421,7 @@ export function dbErrorText(error: unknown, target: DbTarget): string {
   }
   if (s === CONTAINER_SH_NOT_FOUND) return t('db.containerShNotFound')
   if (s === PSQL_NO_RESTRICT) return t('db.psqlNoRestrict')
+  if (s === SQL_EMPTY) return t('db.sqlEmpty')
   const missing = missingClients(error)
   if (!missing) return s
   const via = target.via

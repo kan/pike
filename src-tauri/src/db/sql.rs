@@ -123,8 +123,11 @@ pub fn client_args(
     // `client_command` は、MySQL では文字列の読み方が `sql_mode`（`NO_BACKSLASH_ESCAPES` など）や実行される
     // コメント（`/*! ... */`）で変わるので追い切れない。あちらは断る理由を見せるためのもので、止めるのはこれ。
     // 副作用は `\r\n` を `\n` に直さないことと `\0` を文の終わりと見なさないことで、どちらも困らない。
+    // **`--local-infile=0` も付ける。** `--binary-mode` は `LOAD DATA LOCAL INFILE` を止めないので、LOCAL を
+    // 許すサーバーでは、DB の FILE 権限なしにクライアントの環境（ホスト・WSL・コンテナ）のファイルを読んで
+    // 送れてしまう。クライアントの側で LOCAL を切れば、サーバーの設定に依らず読まない。
     if engine == Engine::Mysql && sql == SqlInput::Stdin {
-        args.push("--binary-mode");
+        args.extend(["--binary-mode", "--local-infile=0"]);
     }
     let mut args: Vec<String> = args.into_iter().map(str::to_owned).collect();
     if let Some(h) = conn.host {
@@ -551,11 +554,16 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
             }
             b'#' if engine == Engine::Mysql => i = line_end(bytes, i),
             b'/' if next == Some(b'*') => {
-                let end = block_comment_end(engine, bytes, i);
                 // MySQL の `/*! ... */` と MariaDB の `/*M! ... */` はサーバーが実行する。
                 let executed = engine == Engine::Mysql
                     && (bytes[i + 2..].starts_with(b"!") || bytes[i + 2..].starts_with(b"M!"));
-                if executed {
+                // **閉じていないコメントは中身として残す**（落とすと、構文エラーになるはずの
+                // `SELECT nextval('seq') /* unfinished` が `COPY (SELECT nextval('seq'))` として実行される）。
+                let (end, keep) = match block_comment_end(engine, bytes, i) {
+                    Some(end) => (end, executed),
+                    None => (bytes.len(), true),
+                };
+                if keep {
                     mark(&mut shape, &mut in_statement, i, end);
                 }
                 i = end;
@@ -631,8 +639,8 @@ fn line_end(bytes: &[u8], from: usize) -> usize {
 }
 
 /// `/*` で始まるコメントの直後の位置。**PostgreSQL のブロックコメントは入れ子になる**
-/// （`/* /* */ ; */` は 1 つのコメント）。MySQL は入れ子にしない。閉じていなければ末尾。
-fn block_comment_end(engine: Engine, bytes: &[u8], start: usize) -> usize {
+/// （`/* /* */ ; */` は 1 つのコメント）。MySQL は入れ子にしない。閉じていなければ `None`。
+fn block_comment_end(engine: Engine, bytes: &[u8], start: usize) -> Option<usize> {
     let mut depth = 0usize;
     let mut i = start;
     while i + 1 < bytes.len() {
@@ -645,13 +653,13 @@ fn block_comment_end(engine: Engine, bytes: &[u8], start: usize) -> usize {
                 depth -= 1;
                 i += 2;
                 if depth == 0 {
-                    return i;
+                    return Some(i);
                 }
             }
             _ => i += 1,
         }
     }
-    bytes.len()
+    None
 }
 
 /// `quote` で始まる引用の直後の位置。引用符の二重化（`''`）を中身として読む。閉じていなければ末尾。
@@ -696,6 +704,11 @@ fn dollar_end(sql: &str, start: usize) -> Option<usize> {
 /// 1 つの値。`None` が NULL。
 pub type Cell = Option<String>;
 
+/// 入力された SQL のログ（`OutputMode::Log`）で持ち帰る上限（バイト）。超えたぶんは捨てて
+/// `truncated` を立てる（巨大な結果を整列した表で流されても webview が重くならないように）。
+/// 改行の来ていない 1 行を溜める上限（`RecordReader::append_pending`）も同じ値。
+pub const LOG_MAX_BYTES: usize = 1024 * 1024;
+
 /// クライアントの出力を 1 レコードずつに読む。**行の途中で区切られたバイト列を受けてよい**
 /// （コンテナの exec は出力を任意の塊で返す）。改行のバイトは UTF-8 の多バイト文字の途中に
 /// 現れないので、改行で切ってから文字列にする。
@@ -734,15 +747,37 @@ impl RecordReader {
         // **探すのは届いた塊だけ。** 溜めてある `pending` には改行が残っていないので、溜めたぶんまで
         // 毎回探すと、改行の無い巨大な値（長い TEXT や BLOB）で塊の数の二乗に比例して遅くなる。
         let Some(at) = bytes.iter().rposition(|&b| b == b'\n') else {
-            self.pending.extend_from_slice(bytes);
+            self.append_pending(bytes);
             return;
         };
-        let last_nl = self.pending.len() + at;
-        self.pending.extend_from_slice(bytes);
-        let rest = self.pending.split_off(last_nl + 1);
-        let complete = std::mem::replace(&mut self.pending, rest);
+        self.pending.extend_from_slice(&bytes[..=at]);
+        let complete = std::mem::take(&mut self.pending);
+        self.append_pending(&bytes[at + 1..]);
         let text = String::from_utf8_lossy(&complete);
         self.feed(&text, out);
+    }
+
+    /// 改行の来ていない続きを溜める。**ログの形は 1 行を `LOG_MAX_BYTES` までしか溜めない**（超えたぶんは
+    /// 読み捨てる。出力そのものは最後まで読むので、子がパイプに書けずに止まることはない）。ログは
+    /// `LogSink` がその上限で切るので、それより先を持っていても見せない。溜めずにいると、
+    /// `COPY (SELECT repeat('x', 268435456)) TO STDOUT` の 1 行で 256 MiB を持つ。
+    /// **表の形は切らない**（PostgreSQL の CSV は引用符の中の行が崩れ、書き出しは値を丸ごと要る）。
+    fn append_pending(&mut self, bytes: &[u8]) {
+        let take = match self.format {
+            LineFormat::Lines => LOG_MAX_BYTES
+                .saturating_sub(self.pending.len())
+                .min(bytes.len()),
+            LineFormat::MysqlBatch | LineFormat::PgCsv => bytes.len(),
+        };
+        self.pending.extend_from_slice(&bytes[..take]);
+        // 切ったのが文字の途中なら、その文字ごと落とす（残りが U+FFFD に化けないように）。
+        // 続きのバイト（`10xxxxxx`）が切った先にあれば、溜めた末尾の文字は欠けている。
+        if bytes.get(take).is_some_and(|&b| b & 0xC0 == 0x80) {
+            while self.pending.last().is_some_and(|&b| b & 0xC0 == 0x80) {
+                self.pending.pop();
+            }
+            self.pending.pop();
+        }
     }
 
     /// 出力の終わり。最後の行が改行で終わっていなくても読む。
@@ -1026,6 +1061,7 @@ mod tests {
         assert!(!args.iter().any(|a| a.starts_with("--execute")));
         // 標準入力から読む MySQL はクライアントのコマンドを止める。固定の SQL（引数）には付けない。
         assert!(args.contains(&"--binary-mode".to_owned()));
+        assert!(args.contains(&"--local-infile=0".to_owned()));
         assert!(
             !client_args(Engine::Mysql, &conn, sql, OutputMode::Log)
                 .contains(&"--binary-mode".to_owned())
@@ -1223,6 +1259,16 @@ mod tests {
         );
         // ただのコメントは落とす。
         assert_eq!(plan_user_sql(Engine::Mysql, "/* c */"), None);
+        // 閉じていないコメントは中身として残す（クライアントが構文エラーで返す）。
+        let sql = "SELECT nextval('seq') /* unfinished";
+        assert_eq!(
+            plan_user_sql(Engine::Postgres, sql),
+            Some(Query(pg_copy(&format!("{sql}\n"))))
+        );
+        assert_eq!(
+            plan_user_sql(Engine::Postgres, "/* /* */ SELECT 1"),
+            Some(Script)
+        );
     }
 
     #[test]
@@ -1286,6 +1332,36 @@ mod tests {
                 vec![s("CREATE")]
             ]
         );
+    }
+
+    #[test]
+    fn log_mode_caps_a_long_line_before_buffering() {
+        // 改行の無い 3 MiB を 64 KiB ずつ渡しても、溜めるのは上限まで。次の行は読む。
+        let mut reader = RecordReader::new(Engine::Postgres, OutputMode::Log);
+        let chunk = vec![b'x'; 64 * 1024];
+        for _ in 0..48 {
+            reader.push(&chunk, &mut |_| {});
+        }
+        assert_eq!(reader.pending.len(), LOG_MAX_BYTES);
+        let mut out = Vec::new();
+        reader.push(b"\nnext\n", &mut |r| out.push(r));
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0][0].as_deref().map(str::len), Some(LOG_MAX_BYTES));
+        assert_eq!(out[1], vec![s("next")]);
+        // 上限が文字の途中に当たったら、その文字ごと落とす（置換文字に化けない）。
+        let mut reader = RecordReader::new(Engine::Postgres, OutputMode::Log);
+        let jp = "あ".repeat(LOG_MAX_BYTES / 3 + 1);
+        reader.push(jp.as_bytes(), &mut |_| {});
+        let mut out = Vec::new();
+        reader.push(b"\n", &mut |r| out.push(r));
+        let line = out[0][0].as_deref().unwrap();
+        assert!(line.chars().all(|c| c == 'あ') && line.len() <= LOG_MAX_BYTES);
+        // 表の形は切らない（値を丸ごと要る）。
+        let mut reader = RecordReader::new(Engine::Mysql, OutputMode::Records);
+        for _ in 0..48 {
+            reader.push(&chunk, &mut |_| {});
+        }
+        assert_eq!(reader.pending.len(), 48 * 64 * 1024);
     }
 
     #[test]

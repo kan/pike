@@ -19,7 +19,7 @@ pub mod sql;
 
 use crate::docker::{DockerState, get_docker};
 use crate::types::{
-    DEFAULT_TIMEOUT, STDERR_KEEP_MAX, ShellConfig, WSL_EXTRA_PATH, drain_stderr, truncate_chars,
+    DEFAULT_TIMEOUT, STDERR_KEEP_MAX, ShellConfig, WSL_EXTRA_PATH, truncate_chars,
     wait_with_timeout,
 };
 use bollard::Docker;
@@ -28,7 +28,9 @@ use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::query_parameters::InspectContainerOptions;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use sql::{Cell, ConnArgs, DumpFormat, Engine, OutputMode, RecordReader, SqlInput, UserSql};
+use sql::{
+    Cell, ConnArgs, DumpFormat, Engine, LOG_MAX_BYTES, OutputMode, RecordReader, SqlInput, UserSql,
+};
 use std::io::{Read, Write};
 use std::process::Stdio;
 use std::time::Duration;
@@ -48,10 +50,6 @@ const DUMP_TIMEOUT: Duration = Duration::from_secs(600);
 /// 書き出しと同じだけ待つ。
 const EXEC_TIMEOUT: Duration = DUMP_TIMEOUT;
 
-/// 入力された SQL のログ（`OutputMode::Log`）で持ち帰る上限（バイト）。超えたぶんは捨てて
-/// `truncated` を立てる（巨大な結果を整列した表で流されても webview が重くならないように）。
-const LOG_MAX_BYTES: usize = 1024 * 1024;
-
 /// クライアントが見つからないときのエラーの接頭辞。フロント（`lib/dbViewer.ts`）がこれを見て
 /// 「`mysql` が見つからない」と出す。
 const CLIENT_NOT_FOUND: &str = "db-client-not-found:";
@@ -70,6 +68,9 @@ const SQL_TOO_LONG: &str = "db-sql-too-long:";
 
 /// 入力した SQL にクライアントのコマンドがあったときのエラーの接頭辞（後ろにコマンド）。
 const CLIENT_COMMAND: &str = "db-client-command:";
+
+/// 入力した SQL が空白・コメント・`;` だけだったときのエラー（フロントが文言にする）。
+const SQL_EMPTY: &str = "db-sql-empty";
 
 /// psql が古く、`\restrict` が無いので入力した SQL を実行しなかったときのエラー（`sql::restricted_script`）。
 const PSQL_NO_RESTRICT: &str = "db-psql-no-restrict";
@@ -315,6 +316,57 @@ impl LogSink {
         };
         (text.to_owned(), self.truncated)
     }
+}
+
+/// stderr の先頭と末尾を残す（`STDERR_HEAD` と `STDERR_KEEP_MAX` の残り）。**末尾を捨てないこと**:
+/// 入力した SQL は成功時の NOTICE / WARNING も stderr から拾うので、先頭だけを残すと、NOTICE が上限を
+/// 埋めたあとに出る肝心の ERROR（`psql:<stdin>:N:` と、どの文で止まったか）が消える。間を落としたら
+/// その印を挟む。
+#[derive(Default)]
+struct StderrKeep {
+    head: String,
+    tail: String,
+    omitted: bool,
+}
+
+/// stderr の先頭に残す量。残りの `STDERR_KEEP_MAX` までを末尾に使う。
+const STDERR_HEAD: usize = 8 * 1024;
+
+impl StderrKeep {
+    fn push(&mut self, text: &str) {
+        if self.tail.is_empty() && self.head.len() + text.len() <= STDERR_HEAD {
+            self.head.push_str(text);
+            return;
+        }
+        self.tail.push_str(text);
+        let max = STDERR_KEEP_MAX - STDERR_HEAD;
+        if self.tail.len() > max {
+            let mut cut = self.tail.len() - max;
+            while !self.tail.is_char_boundary(cut) {
+                cut += 1;
+            }
+            self.tail.drain(..cut);
+            self.omitted = true;
+        }
+    }
+
+    fn into_string(self) -> String {
+        match self.omitted {
+            true => format!("{}\n…\n{}", self.head.trim_end(), self.tail),
+            false => self.head + &self.tail,
+        }
+    }
+}
+
+/// 子プロセスの stderr を最後まで吸い、先頭と末尾を残す（`StderrKeep`）。
+fn drain_stderr_keep(source: impl Read) -> String {
+    let mut keep = StderrKeep::default();
+    crate::types::for_each_line(source, |line| {
+        keep.push(line);
+        keep.push("\n");
+        true
+    });
+    keep.into_string()
 }
 
 /// 1 回の実行の結果。どれも sink を持ち帰る（次の候補を試すときと、失敗までのログを見せるときに使う）。
@@ -657,7 +709,7 @@ fn run_shell<S: Sink>(
     let (code, stderr, sink, sink_err) = wait_with_timeout(pid, timeout, client, move || {
         let stderr = child.stderr.take();
         let stderr_thread =
-            std::thread::spawn(move || stderr.map(drain_stderr).unwrap_or_default());
+            std::thread::spawn(move || stderr.map(drain_stderr_keep).unwrap_or_default());
         // 書き込みは別のスレッドで（stdout を読まずに書き続けると、出力のパイプが詰まった子が
         // 標準入力を読まなくなって互いに止まる）。書き終えたら閉じて EOF を知らせる。失敗（子が先に
         // 終わった）は子の終了コードと stderr が言うので捨てる。
@@ -798,7 +850,7 @@ async fn exec_drain(
     timeout: Duration,
     mut on_stdout: impl FnMut(&[u8]),
 ) -> Result<(i64, String), String> {
-    let mut stderr = String::new();
+    let mut stderr = StderrKeep::default();
     if let StartExecResults::Attached { mut output, .. } = docker
         .start_exec(exec_id, None)
         .await
@@ -808,8 +860,8 @@ async fn exec_drain(
             while let Some(msg) = output.next().await {
                 match msg.map_err(|e| e.to_string())? {
                     LogOutput::StdOut { message } => on_stdout(&message),
-                    LogOutput::StdErr { message } if stderr.len() < STDERR_KEEP_MAX => {
-                        stderr.push_str(&String::from_utf8_lossy(&message));
+                    LogOutput::StdErr { message } => {
+                        stderr.push(&String::from_utf8_lossy(&message));
                     }
                     _ => {}
                 }
@@ -828,7 +880,7 @@ async fn exec_drain(
         .map_err(|e| e.to_string())?
         .exit_code
         .unwrap_or(-1);
-    Ok((code, stderr))
+    Ok((code, stderr.into_string()))
 }
 
 /// コンテナの環境変数から読んだ接続の既定（ユーザー名・DB 名・パスワードの有無）。
@@ -989,7 +1041,7 @@ pub async fn db_execute(
     if let Some(cmd) = sql::client_command(engine, &sql) {
         return Err(format!("{CLIENT_COMMAND}{cmd}"));
     }
-    let plan = sql::plan_user_sql(engine, &sql).ok_or_else(|| "SQL is empty".to_owned())?;
+    let plan = sql::plan_user_sql(engine, &sql).ok_or_else(|| SQL_EMPTY.to_owned())?;
     let mut session = Session::open(&state, &target).await?;
     if let UserSql::Query(query) = plan {
         let collect = Collect::new(Some(ROW_LIMIT));
@@ -1231,6 +1283,26 @@ mod tests {
             log.record(vec![Some(String::new())]).unwrap();
         }
         assert!(log.truncated && log.text.len() <= LOG_MAX_BYTES);
+    }
+
+    #[test]
+    fn stderr_keeps_the_head_and_the_last_error() {
+        // NOTICE で上限を埋めても、最後の ERROR は残る。
+        let mut keep = StderrKeep::default();
+        for _ in 0..5000 {
+            keep.push("psql:<stdin>:2: NOTICE:  table \"t\" does not exist, skipping\n");
+        }
+        keep.push("psql:<stdin>:5001: ERROR:  syntax error\n");
+        let s = keep.into_string();
+        assert!(s.len() <= STDERR_KEEP_MAX + 8);
+        assert!(s.starts_with("psql:<stdin>:2: NOTICE"));
+        assert!(s.contains("\n…\n"));
+        assert!(s.ends_with("ERROR:  syntax error\n"));
+        // 上限に届かなければ、そのまま。
+        let mut keep = StderrKeep::default();
+        keep.push("a\n");
+        keep.push("b\n");
+        assert_eq!(keep.into_string(), "a\nb\n");
     }
 
     #[test]

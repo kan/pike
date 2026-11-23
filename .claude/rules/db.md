@@ -119,12 +119,18 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
   - **MySQL は標準入力から読むときに `--binary-mode` を付ける**（`client_args`）。`charset` と `delimiter` 以外の
     クライアントのコマンドを止める（`\!` は `Unknown command`、`system` はサーバーへ送られて構文エラー。上の迂回の例も
     含めて mariadb 11.8 で実測）。MySQL 5.6.3 からある
+  - **MySQL は `--local-infile=0` も付ける。** `--binary-mode` は `LOAD DATA LOCAL INFILE` を止めない。LOCAL を許す
+    サーバーでは、DB の FILE 権限なしにクライアントの環境のファイルを読んで送れる（Copilot のレビュー）。クライアントの
+    側で切れば、サーバーの設定に依らず読まない
   - MariaDB の `--sandbox` も同じことをするが、MySQL と古い MariaDB のクライアントには無い（知らないオプションで
     起動しない）ので使わない
   - **コンテナに `sh` が無いと SQL を渡せない**（`db-container-sh-not-found`）。`sh` を挟んだ exec の 126 / 127 は
     「クライアントが無い」にしない（クライアントは `--version` で確かめてあり、一覧とレコードは見られるのに SQL だけ
     失敗する理由が分からなくなる）
-  - 実行の前に断ったとき（クライアントのコマンド、長すぎる SQL）はテーブルの一覧を読み直さない（`rejectedBeforeRun`）
+  - 実行の前に断ったとき（クライアントのコマンド、長すぎる SQL、空の SQL＝`db-sql-empty`、古い psql、`sh` の無い
+    コンテナ）はテーブルの一覧を読み直さない（`rejectedBeforeRun`）
+  - **stderr は先頭と末尾を残す**（`StderrKeep`。上限は `STDERR_KEEP_MAX`）。成功時の NOTICE も stderr から拾うので、
+    先頭だけを残す `types::drain_stderr` だと、NOTICE が上限を埋めたあとに出る肝心の ERROR が消える
 
 - **流し方は `sql::plan_user_sql` が決める。** 結果を返す文が 1 つだけ（MySQL は `SELECT` / `WITH` / `VALUES` /
   `TABLE` / `SHOW` / `DESCRIBE` / `DESC` / `EXPLAIN`、PostgreSQL は `SELECT` / `WITH` / `VALUES` / `TABLE`）なら
@@ -137,6 +143,8 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
   - **MySQL の実行されるコメント（`/*! ... */`、MariaDB の `/*M! ... */`）は中身として数える。** 落とすと
     `SELECT * FROM t /*!50000 WHERE id = 1 */` の WHERE が消える（実測）
   - MySQL の `--` は後ろに空白か制御文字が要る（`1--1` は引き算）。`#` も行末までのコメント
+  - **閉じていないブロックコメントは中身として残す**（`block_comment_end` が `None`）。落とすと、構文エラーになる
+    はずの `SELECT nextval('seq') /* unfinished` が `COPY (SELECT nextval('seq'))` として実行される
   - PostgreSQL のブロックコメントは入れ子になる（`block_comment_end`）。`E'...'` の `E` と、ドル引用の `$` は、
     識別子の続き（`LIKE'..'` の `E`、`a$b$`）なら接頭辞と見なさない（`is_ident_byte`）
   - 表にするときは前後の `;` とコメントを落とし（`body_start..body_end`。先頭の空の文は MySQL が
@@ -161,6 +169,9 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
   のコマンドの結果が出ない（postgres 18 で実測）
   - 1 行を 1 つの値のレコードとして読み（`RecordReader` の `OutputMode::Log`）、`LOG_MAX_BYTES`（1MB）で切る。
     入り切らない行は入るぶんだけ（文字の途中で切らずに）残す（捨てると、最初の行が長いだけでログが空になる）
+  - **改行の来ていない 1 行も `LOG_MAX_BYTES` までしか溜めない**（`RecordReader::append_pending`。超えたぶんは読み捨て、
+    出力は最後まで読む）。上限が `LogSink` だけだと、改行が来るまで 1 行を丸ごと持つ（`repeat('x', 268435456)` の
+    1 行で 256 MiB）。**表の形の行は切らない**（PostgreSQL の CSV は引用符の中の行が崩れ、書き出しは値を丸ごと要る）
   - **エラーのときは、それまでのログを前に付けて返す**（`Outcome::Failed` が sink を持ち帰る）。複数の文は失敗した
     文の前まで実行されて確定している（MySQL は `--force` を付けないので止まる、PostgreSQL は `ON_ERROR_STOP=1`）
 - **表は `ROW_LIMIT` 行まで持つ**（`Collect` の `limit`。SQL に `LIMIT` を足せないので、超えた行は読み捨てる）。
