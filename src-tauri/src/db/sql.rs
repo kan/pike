@@ -706,8 +706,13 @@ pub type Cell = Option<String>;
 
 /// 入力された SQL のログ（`OutputMode::Log`）で持ち帰る上限（バイト）。超えたぶんは捨てて
 /// `truncated` を立てる（巨大な結果を整列した表で流されても webview が重くならないように）。
-/// 改行の来ていない 1 行を溜める上限（`RecordReader::append_pending`）も同じ値。
 pub const LOG_MAX_BYTES: usize = 1024 * 1024;
+
+/// 改行の来ていない 1 行を溜める上限（`RecordReader::append_pending`）。**`LOG_MAX_BYTES` より 4 バイト
+/// 大きくする**: 切ったあとに文字の境界まで戻す（最大 3 バイト）ので、同じ値だと残る行が `LOG_MAX_BYTES`
+/// より短くなり、`LogSink` が切ったことに気付かず `truncated` が立たない（Copilot のレビュー）。
+/// 4 バイト大きければ、切った行は必ず `LogSink` の上限を超え、そこで切られて `truncated` が立つ。
+const LOG_LINE_CAP: usize = LOG_MAX_BYTES + 4;
 
 /// クライアントの出力を 1 レコードずつに読む。**行の途中で区切られたバイト列を受けてよい**
 /// （コンテナの exec は出力を任意の塊で返す）。改行のバイトは UTF-8 の多バイト文字の途中に
@@ -757,14 +762,14 @@ impl RecordReader {
         self.feed(&text, out);
     }
 
-    /// 改行の来ていない続きを溜める。**ログの形は 1 行を `LOG_MAX_BYTES` までしか溜めない**（超えたぶんは
+    /// 改行の来ていない続きを溜める。**ログの形は 1 行を `LOG_LINE_CAP` までしか溜めない**（超えたぶんは
     /// 読み捨てる。出力そのものは最後まで読むので、子がパイプに書けずに止まることはない）。ログは
     /// `LogSink` がその上限で切るので、それより先を持っていても見せない。溜めずにいると、
     /// `COPY (SELECT repeat('x', 268435456)) TO STDOUT` の 1 行で 256 MiB を持つ。
     /// **表の形は切らない**（PostgreSQL の CSV は引用符の中の行が崩れ、書き出しは値を丸ごと要る）。
     fn append_pending(&mut self, bytes: &[u8]) {
         let take = match self.format {
-            LineFormat::Lines => LOG_MAX_BYTES
+            LineFormat::Lines => LOG_LINE_CAP
                 .saturating_sub(self.pending.len())
                 .min(bytes.len()),
             LineFormat::MysqlBatch | LineFormat::PgCsv => bytes.len(),
@@ -1342,20 +1347,24 @@ mod tests {
         for _ in 0..48 {
             reader.push(&chunk, &mut |_| {});
         }
-        assert_eq!(reader.pending.len(), LOG_MAX_BYTES);
+        assert_eq!(reader.pending.len(), LOG_LINE_CAP);
         let mut out = Vec::new();
         reader.push(b"\nnext\n", &mut |r| out.push(r));
         assert_eq!(out.len(), 2);
-        assert_eq!(out[0][0].as_deref().map(str::len), Some(LOG_MAX_BYTES));
+        assert_eq!(out[0][0].as_deref().map(str::len), Some(LOG_LINE_CAP));
         assert_eq!(out[1], vec![s("next")]);
-        // 上限が文字の途中に当たったら、その文字ごと落とす（置換文字に化けない）。
+        // 上限が文字の途中に当たったら、その文字ごと落とす（置換文字に化けない）。それでも残る行は
+        // `LOG_MAX_BYTES` を超える（`LogSink` がそこで切って `truncated` を立てられる）。
         let mut reader = RecordReader::new(Engine::Postgres, OutputMode::Log);
-        let jp = "あ".repeat(LOG_MAX_BYTES / 3 + 1);
-        reader.push(jp.as_bytes(), &mut |_| {});
+        let jp = "あ".repeat(LOG_LINE_CAP / 3 + 1);
+        for chunk in jp.as_bytes().chunks(64 * 1024) {
+            reader.push(chunk, &mut |_| {});
+        }
         let mut out = Vec::new();
         reader.push(b"\n", &mut |r| out.push(r));
         let line = out[0][0].as_deref().unwrap();
-        assert!(line.chars().all(|c| c == 'あ') && line.len() <= LOG_MAX_BYTES);
+        assert!(line.chars().all(|c| c == 'あ'));
+        assert!(line.len() > LOG_MAX_BYTES && line.len() <= LOG_LINE_CAP);
         // 表の形は切らない（値を丸ごと要る）。
         let mut reader = RecordReader::new(Engine::Mysql, OutputMode::Records);
         for _ in 0..48 {

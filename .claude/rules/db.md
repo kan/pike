@@ -169,8 +169,9 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
   のコマンドの結果が出ない（postgres 18 で実測）
   - 1 行を 1 つの値のレコードとして読み（`RecordReader` の `OutputMode::Log`）、`LOG_MAX_BYTES`（1MB）で切る。
     入り切らない行は入るぶんだけ（文字の途中で切らずに）残す（捨てると、最初の行が長いだけでログが空になる）
-  - **改行の来ていない 1 行も `LOG_MAX_BYTES` までしか溜めない**（`RecordReader::append_pending`。超えたぶんは読み捨て、
-    出力は最後まで読む）。上限が `LogSink` だけだと、改行が来るまで 1 行を丸ごと持つ（`repeat('x', 268435456)` の
+  - **改行の来ていない 1 行も `LOG_LINE_CAP` までしか溜めない**（`RecordReader::append_pending`。超えたぶんは読み捨て、
+    出力は最後まで読む）。`LOG_LINE_CAP` は `LOG_MAX_BYTES` より 4 バイト大きい: 切ったあと文字の境界まで最大 3 バイト
+    戻すので、同じ値だと残る行が上限より短くなり、`LogSink` が `truncated` を立てない（Copilot のレビュー）。上限が `LogSink` だけだと、改行が来るまで 1 行を丸ごと持つ（`repeat('x', 268435456)` の
     1 行で 256 MiB）。**表の形の行は切らない**（PostgreSQL の CSV は引用符の中の行が崩れ、書き出しは値を丸ごと要る）
   - **エラーのときは、それまでのログを前に付けて返す**（`Outcome::Failed` が sink を持ち帰る）。複数の文は失敗した
     文の前まで実行されて確定している（MySQL は `--force` を付けないので止まる、PostgreSQL は `ON_ERROR_STOP=1`）

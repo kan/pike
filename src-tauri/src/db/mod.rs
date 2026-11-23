@@ -1286,6 +1286,25 @@ mod tests {
     }
 
     #[test]
+    fn a_long_utf8_log_line_is_reported_as_truncated() {
+        // Copilot のレビューの例: `repeat('あ', 349526)` の 1 行を 64 KiB ずつ受け、改行が別の塊で届く。
+        // 読み手が溜める段階で切っても、`LogSink` が切ったことを知らせる。
+        let line = "あ".repeat(349_526);
+        let mut feeder = Feeder::new(
+            RecordReader::new(Engine::Postgres, OutputMode::Log),
+            LogSink::default(),
+        );
+        for chunk in line.as_bytes().chunks(64 * 1024) {
+            feeder.push(chunk);
+        }
+        feeder.push(b"\n");
+        let (sink, _) = feeder.finish();
+        let (text, truncated) = sink.into_text(Engine::Postgres);
+        assert!(truncated);
+        assert!(text.len() < LOG_MAX_BYTES && text.chars().all(|c| c == 'あ'));
+    }
+
+    #[test]
     fn stderr_keeps_the_head_and_the_last_error() {
         // NOTICE で上限を埋めても、最後の ERROR は残る。
         let mut keep = StderrKeep::default();
