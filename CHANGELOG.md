@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-11-23
+
 ### Features
 
 - **DB ビューワで、入力した SQL を実行できるようにした**：DB タブの「SQL」に SQL を書き、「実行」か `Ctrl+Enter` で実行します。範囲を選んでいれば、その部分だけを実行します。SELECT のように結果を返す文が 1 つなら、結果をレコードと同じ表で見せ、コピーと保存もできます。DDL やデータを書き換える文、複数の文は、クライアントの出力（文ごとの結果や影響した行数）をそのまま表示します。これらも確認なしに実行するので、本番の DB にはつながないでください。実行のあとはテーブルの一覧を読み直します。`\!` のような、OS のコマンドを実行するクライアントのコマンドを含む SQL は実行しません。MySQL の `LOAD DATA LOCAL INFILE` も使えません (#646)
@@ -2041,6 +2043,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.75.0]: https://github.com/kan/pike/releases/tag/v0.75.0
 [0.74.0]: https://github.com/kan/pike/releases/tag/v0.74.0
 [0.73.0]: https://github.com/kan/pike/releases/tag/v0.73.0
 [0.72.0]: https://github.com/kan/pike/releases/tag/v0.72.0
