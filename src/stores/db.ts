@@ -37,8 +37,8 @@ import {
 import { joinPath, pathSep } from '../lib/paths'
 import { PROJECT_KEY_PREFIX } from '../lib/projectStorage'
 import { loadJson, saveJson } from '../lib/storage'
-import { dbContainerDefaults, dbProbe, fsReadFile } from '../lib/tauri'
-import type { DbProbe, DbTarget } from '../types/db'
+import { dbContainerDefaults, dbProbe, fsReadFile, redisProbe } from '../lib/tauri'
+import type { DbProbe, DbTarget, RedisProbe } from '../types/db'
 import type { ShellType } from '../types/tab'
 import { useDockerStore } from './docker'
 import { useProjectStore } from './project'
@@ -65,9 +65,14 @@ export interface DbDialogState {
   tabId?: string
 }
 
-/** つないだときに読んだ一覧。開いた DB タブが 1 回だけ使う（同じ問い合わせを繰り返さない）。 */
-export interface DbPrefetched extends DbProbe {
+/**
+ * つないだときに読んだ一覧。開いた DB タブが 1 回だけ使う（同じ問い合わせを繰り返さない）。
+ * SQL の DB と Redis（#647）で中身が違う（タブは自分の種類のものを `take*Prefetched` で受ける）。
+ */
+type DbFetched = { kind: 'sql'; probe: DbProbe } | { kind: 'redis'; probe: RedisProbe }
+interface DbPrefetched {
   tabId: string
+  fetched: DbFetched
 }
 
 export const useDbStore = defineStore('db', () => {
@@ -181,11 +186,21 @@ export const useDbStore = defineStore('db', () => {
   /** つないだときに読んだ一覧（1 件だけ持つ。次に開いたタブが使わなければ、次の接続で上書きする）。 */
   let prefetched: DbPrefetched | null = null
 
-  function takePrefetched(tabId: string): DbPrefetched | null {
+  function take(tabId: string): DbFetched | null {
     if (prefetched?.tabId !== tabId) return null
-    const p = prefetched
+    const p = prefetched.fetched
     prefetched = null
     return p
+  }
+
+  function takePrefetched(tabId: string): DbProbe | null {
+    const p = take(tabId)
+    return p?.kind === 'sql' ? p.probe : null
+  }
+
+  function takeRedisPrefetched(tabId: string): RedisProbe | null {
+    const p = take(tabId)
+    return p?.kind === 'redis' ? p.probe : null
   }
 
   function titleOf(target: DbTarget): string {
@@ -212,32 +227,39 @@ export const useDbStore = defineStore('db', () => {
     // エラーを出す（待っているあいだに別のダイアログを開かれていたら、そちらには触らない）。
     const ownDialog = opts.fromDialog ? dialog.value : null
     try {
-      // 接続を確かめ、今の DB・DB の一覧・テーブルの一覧を 1 回で取る（どれもタブが最初に要る）。
-      const probe = await dbProbe(target)
-      // **つながっても見るものが無い（DB を選ばずにつないだ）なら、タブを開かずに聞く。**
-      // DB 名の指定が無く、コンテナに `MYSQL_DATABASE` も無いとき、空のタブが開いていた。
-      const judged = judgeProbe(probe)
-      // 選んでつなぎ直すのは 1 回だけ（DB 名がクライアントに効かずに、また選ばれていない状態で
-      // 戻ってきたら、繰り返さずに聞く）。
-      const verdict: DbProbeVerdict =
-        judged.kind === 'pick' && opts.picked
-          ? { kind: 'ask', reason: 'noDatabase', choices: [judged.database] }
-          : judged
-      if (verdict.kind === 'pick') {
-        connecting.value = null
-        return await open({ ...target, database: verdict.database }, { ...opts, picked: true })
-      }
-      if (verdict.kind === 'ask') {
-        const notice = probeAskText(verdict.reason)
-        if (ownDialog) {
-          if (dialog.value === ownDialog) {
-            ownDialog.error = notice
-            ownDialog.databaseChoices = verdict.choices
-          }
-        } else {
-          openDialog(target, { error: notice, tabId: opts.tabId, databaseChoices: verdict.choices })
+      let fetched: DbFetched
+      if (target.engine === 'redis') {
+        // Redis（#647）は DB の番号が既定で 0 なので、選ばずにつないでも見るものがある（判定は要らない）。
+        fetched = { kind: 'redis', probe: await redisProbe(target) }
+      } else {
+        // 接続を確かめ、今の DB・DB の一覧・テーブルの一覧を 1 回で取る（どれもタブが最初に要る）。
+        const probe = await dbProbe(target)
+        // **つながっても見るものが無い（DB を選ばずにつないだ）なら、タブを開かずに聞く。**
+        // DB 名の指定が無く、コンテナに `MYSQL_DATABASE` も無いとき、空のタブが開いていた。
+        const judged = judgeProbe(probe)
+        // 選んでつなぎ直すのは 1 回だけ（DB 名がクライアントに効かずに、また選ばれていない状態で
+        // 戻ってきたら、繰り返さずに聞く）。
+        const verdict: DbProbeVerdict =
+          judged.kind === 'pick' && opts.picked
+            ? { kind: 'ask', reason: 'noDatabase', choices: [judged.database] }
+            : judged
+        if (verdict.kind === 'pick') {
+          connecting.value = null
+          return await open({ ...target, database: verdict.database }, { ...opts, picked: true })
         }
-        return false
+        if (verdict.kind === 'ask') {
+          const notice = probeAskText(verdict.reason)
+          if (ownDialog) {
+            if (dialog.value === ownDialog) {
+              ownDialog.error = notice
+              ownDialog.databaseChoices = verdict.choices
+            }
+          } else {
+            openDialog(target, { error: notice, tabId: opts.tabId, databaseChoices: verdict.choices })
+          }
+          return false
+        }
+        fetched = { kind: 'sql', probe }
       }
       const s = opts.save === false ? null : targetToSaved(target)
       if (s) persist(upsertSaved(saved.value, s))
@@ -245,7 +267,7 @@ export const useDbStore = defineStore('db', () => {
       const id = opts.tabId
         ? tabStore.retargetDbTab(opts.tabId, target, key, title)
         : tabStore.addDbTab(target, key, title)
-      prefetched = { tabId: id, ...probe }
+      prefetched = { tabId: id, fetched }
       if (ownDialog && dialog.value === ownDialog) dialog.value = null
       return true
     } catch (e) {
@@ -342,5 +364,6 @@ export const useDbStore = defineStore('db', () => {
     submitDialog,
     forget,
     takePrefetched,
+    takeRedisPrefetched,
   }
 })

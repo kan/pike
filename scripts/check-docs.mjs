@@ -127,6 +127,10 @@ const EXTERNAL_NAMES = [
   'turn_aborted', // 同上（中断したターン）
   'mysql_async', // 入れなかった DB ドライバのクレート（採らなかった選択肢として db.md が出す、#632）
   'ANSI_QUOTES', // MySQL の sql_mode（クライアントのコマンドを字句で追い切れない理由として db.md が出す、#646）
+  // Redis のコマンド（送らないもの・使わないものとして db.md が出す、#647）
+  'EXPIRE',
+  'HGETALL',
+  'SMEMBERS',
   'expiresAt', // Claude Code の .credentials.json のキー（Pike は読まない。#381 の調査の記録）
   'refreshTokenExpiresAt', // 同上
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）

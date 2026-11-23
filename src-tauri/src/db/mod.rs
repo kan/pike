@@ -15,6 +15,7 @@
 //! 引用して埋める。利用者が入力した SQL は `db_execute`（#646）だけが受ける。
 //! 判断の記録は `.claude/rules/db.md`。
 
+pub mod redis;
 pub mod sql;
 
 use crate::docker::{DockerState, get_docker};
@@ -156,18 +157,35 @@ pub struct ContainerDefaults {
     password: Option<String>,
 }
 
+/// 環境変数（`NAME=value` の並び）から、`names` の順に最初に見つかった空でない値を読む。
+fn env_value(env: &[String], names: &[&str]) -> Option<String> {
+    names.iter().find_map(|n| {
+        env.iter()
+            .find_map(|kv| kv.strip_prefix(n)?.strip_prefix('='))
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+    })
+}
+
+/// 表示する値を `CELL_MAX_CHARS` で切る（巨大な TEXT / BLOB で表が重くならないように）。
+fn clip_cell(v: String) -> String {
+    if v.len() > CELL_MAX_CHARS {
+        truncate_chars(&v, CELL_MAX_CHARS)
+    } else {
+        v
+    }
+}
+
+/// 入力欄の値。空なら指定なし。
+fn given(v: &Option<String>) -> Option<String> {
+    v.clone().filter(|s| !s.is_empty())
+}
+
 /// 環境変数（`NAME=value` の並び）から接続の既定を読む。MariaDB の公式イメージは
 /// `MARIADB_*` を正とし、`MYSQL_*` も受ける。**アプリ用のユーザーがあればそちらを使う**
 /// （root のパスワードが乱数のこともある）。無ければ root。
 fn container_defaults(env: &[String], engine: Engine) -> ContainerDefaults {
-    let get = |names: &[&str]| {
-        names.iter().find_map(|n| {
-            env.iter()
-                .find_map(|kv| kv.strip_prefix(n)?.strip_prefix('='))
-                .filter(|v| !v.is_empty())
-                .map(str::to_owned)
-        })
-    };
+    let get = |names: &[&str]| env_value(env, names);
     let (user, password, database) = match engine {
         Engine::Mysql => {
             let database = get(&["MARIADB_DATABASE", "MYSQL_DATABASE"]);
@@ -218,16 +236,8 @@ impl Sink for Collect {
         if self.columns.is_none() {
             self.columns = Some(cells.into_iter().map(Option::unwrap_or_default).collect());
         } else if self.limit.is_none_or(|n| self.rows.len() <= n) {
-            let clipped = cells.into_iter().map(|c| {
-                c.map(|v| {
-                    if v.len() > CELL_MAX_CHARS {
-                        truncate_chars(&v, CELL_MAX_CHARS)
-                    } else {
-                        v
-                    }
-                })
-            });
-            self.rows.push(clipped.collect());
+            self.rows
+                .push(cells.into_iter().map(|c| c.map(clip_cell)).collect());
         }
         Ok(())
     }
@@ -453,6 +463,94 @@ enum Route {
     Shell(ShellConfig),
 }
 
+/// クライアントを起こす 1 回ぶんの指定（`Route::run`）。
+struct ClientCall<'a> {
+    /// 試すクライアントの順（`mysql` → `mariadb` のように、見つかった最初のものを使う）。
+    clients: &'static [&'static str],
+    args: &'a [String],
+    /// パスワードなどの環境変数。
+    env: &'a [(&'static str, String)],
+    /// 標準入力へ流し込むもの（`ShellIo` / `ExecCall` の doc）。
+    stdin: Option<String>,
+    timeout: Duration,
+}
+
+impl Route {
+    /// 経路を組む。コンテナはその環境変数も返す（接続の既定を読むため。シェルは None）。
+    async fn open(
+        docker_state: &DockerState,
+        via: &DbVia,
+    ) -> Result<(Route, Option<Vec<String>>), String> {
+        match via {
+            DbVia::Container { container_id } => {
+                let docker = get_docker(docker_state).await?;
+                let env = container_env(&docker, container_id).await?;
+                let route = Route::Container {
+                    docker,
+                    id: container_id.clone(),
+                };
+                Ok((route, Some(env)))
+            }
+            DbVia::Shell { shell } => Ok((Route::Shell(shell.clone()), None)),
+        }
+    }
+
+    /// クライアントを起こし、出力を `make_reader` で読んで `sink` へ流す。`resolved` が決まっていなければ
+    /// `clients` を順に試し、見つかったものを覚える（以後は試し直さない。`Session` と Redis の
+    /// `RedisSession` が 1 回のコマンドのあいだ持つ）。**クライアントの結果は sink と一緒に返す**: 成功なら
+    /// `Ok(stderr)`、失敗なら `Err(stderr)`。外側の `Err` は起こせなかったとき（クライアントが無い・exec の失敗）。
+    async fn run<S: Sink>(
+        &self,
+        call: ClientCall<'_>,
+        resolved: &mut Option<usize>,
+        make_reader: impl Fn() -> RecordReader,
+        mut sink: S,
+    ) -> Result<(S, Result<String, String>), String> {
+        let all = call.clients;
+        let (start, candidates) = match *resolved {
+            Some(i) => (i, &all[i..=i]),
+            None => (0, all),
+        };
+        let probe = resolved.is_none();
+        for (i, &client) in candidates.iter().enumerate() {
+            let reader = make_reader();
+            let outcome = match self {
+                Route::Container { docker, id } => {
+                    let exec = ExecCall {
+                        client,
+                        args: call.args,
+                        env: call.env,
+                        stdin: call.stdin.as_deref(),
+                        probe,
+                    };
+                    run_container(docker, id, exec, reader, call.timeout, sink).await?
+                }
+                Route::Shell(shell) => {
+                    let (shell, args, env) = (shell.clone(), call.args.to_vec(), call.env.to_vec());
+                    let (stdin, timeout) = (call.stdin.clone(), call.timeout);
+                    tokio::task::spawn_blocking(move || {
+                        let io = ShellIo { reader, stdin };
+                        run_shell(&shell, client, &args, &env, io, timeout, sink)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())??
+                }
+            };
+            let done = match outcome {
+                Outcome::Done(s, notices) => (s, Ok(notices)),
+                Outcome::Failed(s, e) => (s, Err(e)),
+                Outcome::Missing(s) => {
+                    sink = s;
+                    continue;
+                }
+            };
+            *resolved = Some(start + i);
+            return Ok(done);
+        }
+        Err(format!("{CLIENT_NOT_FOUND}{}", all.join(",")))
+    }
+}
+
 /// 1 回のコマンドのあいだ使い回す接続。**コンテナの inspect とクライアントの解決は 1 回で済ませる**
 /// （テーブル名を一覧で確かめてから本番を流すので、1 回のコマンドで 2 回クエリを流す）。
 struct Session {
@@ -472,19 +570,10 @@ impl Session {
     /// 接続先から組む。コンテナは環境変数の既定を読む（パスワードはここで読み、フロントへ返さない）。
     async fn open(docker_state: &DockerState, target: &DbTarget) -> Result<Self, String> {
         let engine = target.engine;
-        let (route, defaults) = match &target.via {
-            DbVia::Container { container_id } => {
-                let docker = get_docker(docker_state).await?;
-                let env = container_env(&docker, container_id).await?;
-                let route = Route::Container {
-                    docker,
-                    id: container_id.clone(),
-                };
-                (route, container_defaults(&env, engine))
-            }
-            DbVia::Shell { shell } => (Route::Shell(shell.clone()), ContainerDefaults::default()),
-        };
-        let given = |v: &Option<String>| v.clone().filter(|s| !s.is_empty());
+        let (route, env) = Route::open(docker_state, &target.via).await?;
+        let defaults = env
+            .map(|env| container_defaults(&env, engine))
+            .unwrap_or_default();
         let user = given(&target.user).or(defaults.user.clone());
         // 既定のパスワードは既定のユーザーのもの。ユーザーを変えたなら渡さない。
         let password = given(&target.password).or_else(|| {
@@ -528,7 +617,7 @@ impl Session {
         via_stdin: bool,
         mode: OutputMode,
         timeout: Duration,
-        mut sink: S,
+        sink: S,
     ) -> Result<(S, Result<String, String>), String> {
         let conn = ConnArgs {
             host: self.host.as_deref(),
@@ -548,51 +637,22 @@ impl Session {
             }
             Engine::Mysql => sql.to_owned(),
         });
-        let all = self.engine.clients();
-        let (start, candidates) = match self.client {
-            Some(i) => (i, &all[i..=i]),
-            None => (0, all),
+        let engine = self.engine;
+        let call = ClientCall {
+            clients: engine.clients(),
+            args: &args,
+            env: &self.env,
+            stdin,
+            timeout,
         };
-        let probe = self.client.is_none();
-        for (i, &client) in candidates.iter().enumerate() {
-            let reader = RecordReader::new(self.engine, mode);
-            let outcome = match &self.route {
-                Route::Container { docker, id } => {
-                    let call = ExecCall {
-                        client,
-                        args: &args,
-                        env: &self.env,
-                        stdin: stdin.as_deref(),
-                        probe,
-                    };
-                    run_container(docker, id, call, reader, timeout, sink).await?
-                }
-                Route::Shell(shell) => {
-                    let (shell, args, env) = (shell.clone(), args.clone(), self.env.clone());
-                    let stdin = stdin.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let io = ShellIo { reader, stdin };
-                        run_shell(&shell, client, &args, &env, io, timeout, sink)
-                    })
-                    .await
-                    .map_err(|e| e.to_string())??
-                }
-            };
-            let done = match outcome {
-                Outcome::Done(s, notices) => (s, Ok(notices)),
-                Outcome::Failed(s, e) => (s, Err(e)),
-                Outcome::Missing(s) => {
-                    sink = s;
-                    continue;
-                }
-            };
-            self.client = Some(start + i);
-            return Ok(done);
-        }
-        Err(format!(
-            "{CLIENT_NOT_FOUND}{}",
-            self.engine.clients().join(",")
-        ))
+        self.route
+            .run(
+                call,
+                &mut self.client,
+                || RecordReader::new(engine, mode),
+                sink,
+            )
+            .await
     }
 
     async fn query(&mut self, sql: &str, limit: Option<usize>) -> Result<DbResult, String> {
