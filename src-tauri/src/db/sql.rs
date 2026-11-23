@@ -325,12 +325,14 @@ pub fn plan_user_sql(engine: Engine, sql: &str) -> Option<UserSql> {
         return Some(UserSql::Script);
     }
     // 前後の `;` とコメントは落とす（`COPY (...)` の中に `;` は書けず、行末のコメントは閉じ括弧を
-    // 隠す。先頭の空の文は MySQL が `No query specified` で拒む）。前後に改行を挟むのは、文の途中の
-    // `--` のコメントが包んだ側を食わないように。
+    // 隠す。先頭の空の文は MySQL が `No query specified` で拒む）。後ろに改行を挟むのは、行末の
+    // `--` のコメントが包んだ側を食わないように。文の最初の行は `COPY (` と同じ 1 行目に置き、エラーの
+    // `LINE n:` を文の中の行番号（文の 1 行目が 1）にする。落とした先頭の行のぶんは数に残せない
+    // （psql は空白だけの行を送らない。実測）。
     let body = &sql[shape.body_start..shape.body_end];
     Some(UserSql::Query(match engine {
         Engine::Mysql => body.to_owned(),
-        Engine::Postgres => pg_copy(&format!("\n{body}\n")),
+        Engine::Postgres => pg_copy(&format!("{body}\n")),
     }))
 }
 
@@ -351,27 +353,95 @@ pub fn copy_rejected(engine: Engine, stderr: &str) -> bool {
 /// `system id` はクライアントを起こした環境（ホスト・WSL・コンテナ）の OS のコマンドを走らせる
 /// （どちらも実測）。`source` / `tee` / `pager` / `edit` もファイルや別のプログラムに触る。
 /// 文字列・引用した識別子・コメントの外の `\` はどれもクライアントのコマンドの始まりなので全部断り、
-/// MySQL の名前の付いたコマンドは行の頭か文の頭のものを断る（そこでしか認められない）。
+/// MySQL の名前の付いたコマンドは文の頭のものを断る（クライアントが読みかけの文を持たないときだけ
+/// コマンドと見なす。文の途中の行頭の `source` は列名）。
 ///
-/// **psql はこれが守りで、MySQL はこれが補助。** psql の字句の読み方（入れ子のコメント・ドル引用・
-/// `E'...'` だけが `\` で逃がす）はここと同じで、`standard_conforming_strings` を切っても文字列が
-/// 長くなる向きにしか変わらないので、外の `\` を見落とさない。MySQL は `sql_mode` や実行される
-/// コメントで読み方が変わるので、止めるのはクライアントの `--binary-mode`（`client_args`）で、ここは
-/// 実行の前に断って理由を見せるためのもの。
+/// **ここは実行の前に断って理由を見せるためのもので、守りではない。** 止めるのはクライアントの側で、
+/// psql は `\restrict`（`restricted_script`）、MySQL は `--binary-mode`（`client_args`）。字句では
+/// 追い切れない: psql は `COPY ... FROM STDIN` のデータと `standard_conforming_strings`、MySQL は
+/// `sql_mode` と実行されるコメント（`/*! ... */`）で、文字列の読み方がここと食い違う。
 pub fn client_command(engine: Engine, sql: &str) -> Option<String> {
     sql_shape(engine, sql).client_command
+}
+
+/// psql へ標準入力で流すスクリプト。**先頭で `\restrict <key>` し、メタコマンドを psql の側で止める**
+/// （`\unrestrict <key>` 以外の `\` のコマンドが `backslash commands are restricted` で失敗し、
+/// `ON_ERROR_STOP=1` で止まる。`key` は呼び出しごとの乱数で、利用者は抜けられない）。
+///
+/// 字句で探す `client_command` だけでは守れない: `COPY ... FROM STDIN` のデータの中や、
+/// `SET standard_conforming_strings = off` で読み方を変えた文字列の陰に `\!` を隠せる（どちらも、
+/// `\restrict` 無しでは OS のコマンドが動き、有りでは止まることを psql 18 で実測）。`\restrict` は
+/// 2025-08 の修正版（18 / 17.6 / 16.10 / 15.14 / 14.19 / 13.22）から。それより古い psql は 1 行目で
+/// `invalid command` になって何も実行しない（`restrict_unsupported`）。
+pub fn restricted_script(sql: &str, key: &str) -> String {
+    format!("\\restrict {key}\n{sql}")
+}
+
+/// psql が `\restrict` を知らない（古い）ために、スクリプトを始められなかったか。見るのは psql 自身が
+/// 1 行目（`restricted_script` が足した行）について出したエラーだけ。**綴りだけで見ないこと**: 利用者の
+/// 文字列の中の `\restrict` は、サーバーのエラー（`LINE 1:` や `Failing row contains`）に写って出てくる。
+/// 本文（`invalid command`）は翻訳されるので照合しない。
+pub fn restrict_unsupported(engine: Engine, stderr: &str) -> bool {
+    engine == Engine::Postgres
+        && stderr
+            .lines()
+            .any(|l| l.starts_with("psql:<stdin>:1:") && l.contains("\\restrict"))
+}
+
+/// psql のエラーの `psql:<stdin>:N:` の行番号を、`restricted_script` が足した 1 行ぶん戻す
+/// （利用者が入力した SQL の行番号にする）。
+pub fn unshift_stdin_lines(msg: &str) -> String {
+    const MARK: &str = "psql:<stdin>:";
+    let mut out = String::with_capacity(msg.len());
+    let mut rest = msg;
+    while let Some(at) = rest.find(MARK) {
+        let (head, tail) = rest.split_at(at + MARK.len());
+        out.push_str(head);
+        let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
+        match tail[..digits].parse::<u64>() {
+            Ok(n) if n > 1 => out.push_str(&(n - 1).to_string()),
+            _ => out.push_str(&tail[..digits]),
+        }
+        rest = &tail[digits..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// psql のエラーの行頭の `psql:<stdin>:N: ` を外す（表の形のエラー。`user_sql_error` の doc）。
+pub fn strip_stdin_lines(msg: &str) -> String {
+    const MARK: &str = "psql:<stdin>:";
+    msg.lines()
+        .map(|line| {
+            line.strip_prefix(MARK)
+                .and_then(|rest| {
+                    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                    (digits > 0)
+                        .then(|| rest[digits..].strip_prefix(": "))
+                        .flatten()
+                })
+                .unwrap_or(line)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// MySQL のクライアントのコマンドのうち、OS やファイルに触るもの（`client_command`）。
 const MYSQL_CLIENT_COMMANDS: &[&str] = &["SYSTEM", "SOURCE", "TEE", "PAGER", "EDIT"];
 
 /// エラーを見せる形にする。PostgreSQL の `VERBOSITY=verbose` が足す `LOCATION:` の行（サーバーの
-/// ソースの位置）を落とす。見出しの語は翻訳されるので、`関数名, ファイル.c:行` の形で見分ける。
+/// ソースの位置）を落とす。見出しの語は翻訳されるので、`関数名, ファイル.拡張子:行` の形で見分ける
+/// （`parse_relation.c:1498` のほか、字句と構文の `scan.l:1429` や `gram.y` もある）。
 pub fn tidy_error(msg: &str) -> String {
     let is_location = |line: &str| {
         line.rsplit_once(", ").is_some_and(|(_, at)| {
-            at.rsplit_once(".c:")
-                .is_some_and(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            at.rsplit_once(':').is_some_and(|(file, n)| {
+                let ext = file.rsplit_once('.').map(|(_, e)| e);
+                !n.is_empty()
+                    && n.bytes().all(|b| b.is_ascii_digit())
+                    && ext.is_some_and(|e| matches!(e, "c" | "l" | "y" | "h"))
+                    && !file.contains(' ')
+            })
         })
     };
     msg.lines()
@@ -418,8 +488,6 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
         client_command: None,
     };
     let mut in_statement = false;
-    // 行の頭か（空白だけを読んだ）。MySQL の名前の付いたクライアントのコマンドを見分ける。
-    let mut line_start = true;
     // 括弧の深さ（`writes` は括弧の外の語だけを見る）。
     let mut depth = 0usize;
     // 直前の語（`FOR UPDATE` の `UPDATE` を書き込みと数えないため）。
@@ -446,13 +514,8 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
     while i < bytes.len() {
         let b = bytes[i];
         let next = bytes.get(i + 1).copied();
-        // 空白とコメント以外を読んだら行の頭ではなくなる（下の各腕で戻す）。
-        let at_line_start = std::mem::replace(&mut line_start, false);
         match b {
-            b if b.is_ascii_whitespace() => {
-                line_start = at_line_start || b == b'\n';
-                i += 1;
-            }
+            b if b.is_ascii_whitespace() => i += 1,
             b';' => {
                 in_statement = false;
                 depth = 0;
@@ -485,14 +548,9 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
                         .is_none_or(|c| c.is_ascii_whitespace() || c.is_ascii_control())) =>
             {
                 i = line_end(bytes, i);
-                line_start = true;
             }
-            b'#' if engine == Engine::Mysql => {
-                i = line_end(bytes, i);
-                line_start = true;
-            }
+            b'#' if engine == Engine::Mysql => i = line_end(bytes, i),
             b'/' if next == Some(b'*') => {
-                line_start = at_line_start;
                 let end = block_comment_end(engine, bytes, i);
                 // MySQL の `/*! ... */` と MariaDB の `/*M! ... */` はサーバーが実行する。
                 let executed = engine == Engine::Mysql
@@ -511,7 +569,7 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
                         b == b'\''
                             && i > 0
                             && matches!(bytes[i - 1], b'E' | b'e')
-                            && (i < 2 || !is_ident_byte(bytes[i - 2]))
+                            && (i < 2 || !(is_ident_byte(bytes[i - 2]) || bytes[i - 2] == b'$'))
                     }
                 };
                 let end = quoted_end(bytes, i, b, backslash);
@@ -534,9 +592,8 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
                 let statement_start = !in_statement;
                 mark(&mut shape, &mut in_statement, i, i + len);
                 if engine == Engine::Mysql {
-                    if (at_line_start || statement_start)
-                        && MYSQL_CLIENT_COMMANDS.contains(&word.as_str())
-                    {
+                    // 名前の付いたコマンドは文の頭だけ（文の途中の行頭の `source` は列名）。
+                    if statement_start && MYSQL_CLIENT_COMMANDS.contains(&word.as_str()) {
                         shape
                             .client_command
                             .get_or_insert(word.to_ascii_lowercase());
@@ -1000,7 +1057,11 @@ mod tests {
             cmd(Engine::Mysql, r"SELECT 'a\'b', `x\y` /* \! */ # \!"),
             None
         );
-        // MySQL の名前の付いたコマンドは行の頭か文の頭だけ。
+        // MySQL の名前の付いたコマンドは文の頭だけ（文の途中の行頭は列名）。
+        assert_eq!(
+            cmd(Engine::Mysql, "SELECT id,\n  source\nFROM events"),
+            None
+        );
         assert_eq!(
             cmd(Engine::Mysql, "SELECT 1;\nsystem id"),
             Some("system".to_owned())
@@ -1012,6 +1073,46 @@ mod tests {
         assert_eq!(cmd(Engine::Mysql, "\\! id"), Some("\\!".to_owned()));
         assert_eq!(cmd(Engine::Mysql, "SELECT system, source FROM t"), None);
         assert_eq!(cmd(Engine::Postgres, "system id"), None);
+    }
+
+    #[test]
+    fn psql_scripts_start_restricted() {
+        assert_eq!(
+            restricted_script("SELECT 1;", "k1"),
+            "\\restrict k1\nSELECT 1;"
+        );
+        // 古い psql は 1 行目で失敗する（実行されない）。
+        let old = "psql:<stdin>:1: error: invalid command \\restrict";
+        assert!(restrict_unsupported(Engine::Postgres, old));
+        assert!(!restrict_unsupported(
+            Engine::Postgres,
+            "psql:<stdin>:4: error: backslash commands are restricted; only \\unrestrict is allowed"
+        ));
+        // 利用者の文字列がサーバーのエラーに写っても、古い psql とは見なさない。
+        assert!(!restrict_unsupported(
+            Engine::Postgres,
+            "psql:<stdin>:2: ERROR:  23514: new row violates check constraint\nDETAIL:  Failing row contains (\\restrict)."
+        ));
+        // 行番号は足した 1 行ぶん戻す。
+        assert_eq!(
+            unshift_stdin_lines("psql:<stdin>:4: ERROR:  x\npsql:<stdin>:12: ERROR:  y"),
+            "psql:<stdin>:3: ERROR:  x\npsql:<stdin>:11: ERROR:  y"
+        );
+        assert_eq!(unshift_stdin_lines("ERROR 1064"), "ERROR 1064");
+        // 表の形では外す（`LINE n:` が入力どおりの行を言う）。
+        assert_eq!(
+            strip_stdin_lines("psql:<stdin>:4: ERROR:  x\nLINE 3: SELECT"),
+            "ERROR:  x\nLINE 3: SELECT"
+        );
+    }
+
+    #[test]
+    fn pg_e_prefix_needs_a_word_boundary() {
+        // `foo$E'...'` の `E` は識別子の続きで、`\` を逃がさない（閉じたあとの `\!` を見つける）。
+        assert_eq!(
+            client_command(Engine::Postgres, "SELECT foo$E'\\'\n\\! echo pike\n'"),
+            Some("\\!".to_owned())
+        );
     }
 
     #[test]
@@ -1053,7 +1154,7 @@ mod tests {
         );
         assert_eq!(
             plan(Engine::Postgres, "/* x */ SELECT 1 -- one"),
-            Some(Query(pg_copy("\nSELECT 1\n")))
+            Some(Query(pg_copy("SELECT 1\n")))
         );
         assert_eq!(
             plan(Engine::Mysql, "SHOW TABLES"),
@@ -1101,9 +1202,10 @@ mod tests {
             plan_user_sql(Engine::Mysql, ";\n SELECT 1"),
             Some(Query("SELECT 1".to_owned()))
         );
+        // 文の最初の行は `COPY (` と同じ行（`LINE n:` を文の中の行番号にする）。
         assert_eq!(
             plan_user_sql(Engine::Postgres, "; SELECT 1;"),
-            Some(Query(pg_copy("\nSELECT 1\n")))
+            Some(Query(pg_copy("SELECT 1\n")))
         );
         // MySQL の実行されるコメントは中身（落とすと WHERE が消える）。
         let sql = "SELECT * FROM t /*!50000 WHERE id = 1 */";
@@ -1157,6 +1259,11 @@ mod tests {
         assert_eq!(
             tidy_error(err),
             "ERROR:  42P01: relation \"nope\" does not exist\nLINE 2: SELECT * FROM nope\n                      ^"
+        );
+        // 字句の段階の警告は `scan.l` から来る。
+        assert_eq!(
+            tidy_error("WARNING:  22P06: x\nLOCATION:  check_string_escape_warning, scan.l:1429"),
+            "WARNING:  22P06: x"
         );
         // MySQL のエラーはそのまま。
         let my =

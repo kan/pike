@@ -71,6 +71,9 @@ const SQL_TOO_LONG: &str = "db-sql-too-long:";
 /// 入力した SQL にクライアントのコマンドがあったときのエラーの接頭辞（後ろにコマンド）。
 const CLIENT_COMMAND: &str = "db-client-command:";
 
+/// psql が古く、`\restrict` が無いので入力した SQL を実行しなかったときのエラー（`sql::restricted_script`）。
+const PSQL_NO_RESTRICT: &str = "db-psql-no-restrict";
+
 /// コンテナに `sh` が無く、入力した SQL を流し込めなかったときのエラー（`run_container`）。
 const CONTAINER_SH_NOT_FOUND: &str = "db-container-sh-not-found";
 
@@ -316,7 +319,8 @@ impl LogSink {
 
 /// 1 回の実行の結果。どれも sink を持ち帰る（次の候補を試すときと、失敗までのログを見せるときに使う）。
 enum Outcome<S> {
-    Done(S),
+    /// 成功。stderr も持ち帰る（psql の NOTICE / WARNING は成功しても stderr に出る）。
+    Done(S, String),
     /// そのクライアントが無い（次の候補を試す）。
     Missing(S),
     /// クライアントがエラーで終わった（stderr か終了コード）。
@@ -351,7 +355,7 @@ fn conclude<S>(
         };
         return Ok(Outcome::Failed(sink, msg));
     }
-    Ok(Outcome::Done(sink))
+    Ok(Outcome::Done(sink, stderr.trim().to_owned()))
 }
 
 /// 出力を読んで sink へ渡す。sink の失敗（書き込めない）は覚えておき、出力は最後まで読む
@@ -456,15 +460,16 @@ impl Session {
             .run_mode(sql, false, OutputMode::Records, timeout, sink)
             .await?
         {
-            (s, None) => Ok(s),
-            (_, Some(e)) => Err(sql::tidy_error(&e)),
+            (s, Ok(_)) => Ok(s),
+            (_, Err(e)) => Err(sql::tidy_error(&e)),
         }
     }
 
     /// `sql` を `mode` の形で実行し、出力を `sink` へ流す。クライアントが決まっていなければ候補を
-    /// 順に試す。**クライアントのエラーは sink と一緒に返す**（入力された SQL のログは、失敗した文
-    /// までの出力も見せる）。`Err` は起こせなかったとき（クライアントが無い・exec の失敗）。
-    /// `via_stdin` なら SQL を標準入力で渡す（入力した SQL。`sql::SqlInput::Stdin` の doc）。
+    /// 順に試す。**クライアントの結果は sink と一緒に返す**: 成功なら `Ok(stderr)`（psql の NOTICE など）、
+    /// 失敗なら `Err(stderr)`（入力された SQL のログは、失敗した文までの出力も見せる）。外側の `Err` は
+    /// 起こせなかったとき（クライアントが無い・exec の失敗）。`via_stdin` なら SQL を標準入力で渡す
+    /// （入力した SQL。`sql::SqlInput::Stdin` の doc）。
     async fn run_mode<S: Sink>(
         &mut self,
         sql: &str,
@@ -472,7 +477,7 @@ impl Session {
         mode: OutputMode,
         timeout: Duration,
         mut sink: S,
-    ) -> Result<(S, Option<String>), String> {
+    ) -> Result<(S, Result<String, String>), String> {
         let conn = ConnArgs {
             host: self.host.as_deref(),
             port: self.port,
@@ -485,7 +490,12 @@ impl Session {
             SqlInput::Arg(sql)
         };
         let args = sql::client_args(self.engine, &conn, input, mode);
-        let stdin = via_stdin.then(|| sql.to_owned());
+        let stdin = via_stdin.then(|| match self.engine {
+            Engine::Postgres => {
+                sql::restricted_script(sql, &uuid::Uuid::new_v4().simple().to_string())
+            }
+            Engine::Mysql => sql.to_owned(),
+        });
         let all = self.engine.clients();
         let (start, candidates) = match self.client {
             Some(i) => (i, &all[i..=i]),
@@ -517,8 +527,8 @@ impl Session {
                 }
             };
             let done = match outcome {
-                Outcome::Done(s) => (s, None),
-                Outcome::Failed(s, e) => (s, Some(e)),
+                Outcome::Done(s, notices) => (s, Ok(notices)),
+                Outcome::Failed(s, e) => (s, Err(e)),
                 Outcome::Missing(s) => {
                     sink = s;
                     continue;
@@ -599,17 +609,18 @@ async fn container_env(docker: &Docker, container_id: &str) -> Result<Vec<String
     Ok(info.config.and_then(|c| c.env).unwrap_or_default())
 }
 
-/// シェルの環境で起こす。**WSL は `sh -c 'PATH=… exec "$0" "$@"'` を挟む**: `wsl.exe -e` で
-/// 直に起こすと、見つからないときに終了コード 1 と `execvpe(...) failed` しか返らず、接続の
-/// 失敗と区別できない（実測）。挟めば `sh` が 127 を返し、`~/.local/bin` なども探せる。
-/// 値は `"$@"` で渡るので、`sh` が SQL やユーザー名を読み直すことはない。
-/// ホスト（Windows / macOS）は直に起こし、見つからなければ spawn が `NotFound` で失敗する。
-/// シェルの経路の入出力。`stdin` は標準入力へ流し込む SQL（`sql::sql_on_stdin`。無ければ閉じる）。
+/// シェルの経路の入出力。`stdin` は標準入力へ流し込む SQL（`sql::SqlInput::Stdin`。psql なら
+/// `sql::restricted_script` を通したもの。無ければ閉じる）。
 struct ShellIo {
     reader: RecordReader,
     stdin: Option<String>,
 }
 
+/// シェルの環境で起こす。**WSL は `sh -c 'PATH=… exec "$0" "$@"'` を挟む**: `wsl.exe -e` で
+/// 直に起こすと、見つからないときに終了コード 1 と `execvpe(...) failed` しか返らず、接続の
+/// 失敗と区別できない（実測）。挟めば `sh` が 127 を返し、`~/.local/bin` なども探せる。
+/// 値は `"$@"` で渡るので、`sh` が SQL やユーザー名を読み直すことはない。
+/// ホスト（Windows / macOS）は直に起こし、見つからなければ spawn が `NotFound` で失敗する。
 fn run_shell<S: Sink>(
     shell: &ShellConfig,
     client: &str,
@@ -690,7 +701,7 @@ struct ExecCall<'a> {
     client: &'a str,
     args: &'a [String],
     env: &'a [(&'static str, String)],
-    /// 標準入力へ流し込む SQL（`sql::sql_on_stdin`）。
+    /// 標準入力へ流し込む SQL（`sql::SqlInput::Stdin`）。
     stdin: Option<&'a str>,
     probe: bool,
 }
@@ -986,14 +997,14 @@ pub async fn db_execute(
             .run_mode(&query, true, OutputMode::Records, EXEC_TIMEOUT, collect)
             .await?
         {
-            (c, None) => {
+            (c, Ok(_)) => {
                 return Ok(DbExec::Rows {
                     result: c.into_result(),
                 });
             }
             // `COPY` で包めなかった文は、ログで流し直す（拒まれた時点では実行されていない）。
-            (_, Some(e)) if sql::copy_rejected(engine, &e) => {}
-            (_, Some(e)) => return Err(sql::tidy_error(&e)),
+            (_, Err(e)) if sql::copy_rejected(engine, &e) => {}
+            (_, Err(e)) => return Err(user_sql_error(engine, &e, true)),
         }
     }
     let (log, err) = session
@@ -1007,13 +1018,42 @@ pub async fn db_execute(
         .await?;
     let (text, truncated) = log.into_text(engine);
     match err {
-        None => Ok(DbExec::Log {
-            text,
-            truncated,
-            tables: session.tables().await.ok(),
-        }),
-        Some(e) if text.is_empty() => Err(sql::tidy_error(&e)),
-        Some(e) => Err(format!("{text}\n\n{}", sql::tidy_error(&e))),
+        // 成功しても psql は NOTICE / WARNING を stderr に出す（`DROP TABLE IF EXISTS` の skipping など）。
+        // 出力のあとに添える（捨てると、テーブルが無かったことが分からない）。
+        Ok(notices) => {
+            let notices = user_sql_error(engine, &notices, false);
+            let text = match (text.is_empty(), notices.is_empty()) {
+                (_, true) => text,
+                (true, false) => notices,
+                (false, false) => format!("{text}\n\n{notices}"),
+            };
+            Ok(DbExec::Log {
+                text,
+                truncated,
+                tables: session.tables().await.ok(),
+            })
+        }
+        // 古い psql は 1 行目で止まるので、出力を前に付けない（接頭辞のまま返してフロントが文言にする）。
+        Err(e) if sql::restrict_unsupported(engine, &e) => Err(PSQL_NO_RESTRICT.to_owned()),
+        Err(e) if text.is_empty() => Err(user_sql_error(engine, &e, false)),
+        Err(e) => Err(format!("{text}\n\n{}", user_sql_error(engine, &e, false))),
+    }
+}
+
+/// 入力した SQL のエラー（と NOTICE）を見せる形にする。psql が `\restrict` を知らないなら（古い）
+/// その旨の接頭辞に、そうでなければ `LOCATION:` の行を落とし、`psql:<stdin>:N:` を直す。`query`
+/// （表の形。`COPY (...)` で包んだ 1 文）のときは `psql:<stdin>:N:` を外す（包んだ文の終わりの行を
+/// 指していて、入力の行と合わない。行は `LINE n:` が入力どおりに言う）。ログの形では、`restricted_script`
+/// が足した 1 行ぶん戻す。
+fn user_sql_error(engine: Engine, stderr: &str, query: bool) -> String {
+    if sql::restrict_unsupported(engine, stderr) {
+        return PSQL_NO_RESTRICT.to_owned();
+    }
+    let msg = sql::tidy_error(stderr);
+    match (engine, query) {
+        (Engine::Postgres, true) => sql::strip_stdin_lines(&msg),
+        (Engine::Postgres, false) => sql::unshift_stdin_lines(&msg),
+        (Engine::Mysql, _) => msg,
     }
 }
 
@@ -1207,7 +1247,10 @@ mod tests {
             conclude((), 127, "", None),
             Ok(Outcome::Missing(()))
         ));
-        assert!(matches!(conclude((), 0, "", None), Ok(Outcome::Done(()))));
+        assert!(matches!(
+            conclude((), 0, "NOTICE:  x\n", None),
+            Ok(Outcome::Done((), n)) if n == "NOTICE:  x"
+        ));
         assert!(matches!(
             conclude((), 1, "ERROR 1045 (28000): Access denied\n", None),
             Ok(Outcome::Failed((), e)) if e == "ERROR 1045 (28000): Access denied"

@@ -1216,6 +1216,8 @@ export default {
   'db.clientCommand':
     'SQL containing a client command ({command}) is not run, because it would run OS commands or touch files outside the database permissions. Run it in a terminal.',
   'db.sqlTooLong': 'SQL passed to a container is limited to {limit} KiB. Split it and run the parts.',
+  'db.psqlNoRestrict':
+    'The SQL was not run because this psql is too old: it lacks \\restrict, which blocks client commands. Update psql to 18, 17.6, 16.10, 15.14, 14.19, 13.22 or later.',
   'db.containerShNotFound':
     'The SQL cannot be passed because the container has no sh. Running SQL uses sh in the container.',
   'db.format': 'Format for copy and save',

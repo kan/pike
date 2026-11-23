@@ -90,18 +90,35 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
     126 で「クライアントが無い」に見える）。`STDIN_CHUNK`（64 KiB）ずつの変数に分け、全体は `CONTAINER_SQL_MAX`
     （1 MiB）までにして、超えたら起こす前に `db-sql-too-long:` で断る（200 KiB の SQL が通ることを実測）
 - **クライアントのコマンドを含む SQL は実行しない**（`sql::client_command`、`db-client-command:`）。psql の `\! id` と
-  MySQL の `\! id` / 行頭の `system id` は、クライアントを起こした環境（ホスト・WSL・コンテナ）の OS のコマンドを走らせる
+  MySQL の `\! id` / 文の頭の `system id` は、クライアントを起こした環境（ホスト・WSL・コンテナ）の OS のコマンドを走らせる
   （どれも実測。`-X` は起動時のファイルを読まないだけで、これは止めない）。DB の権限の外で動くので、SQL の欄からは断る
   - 文字列・引用した識別子・コメントの外の `\` は全部断る（どちらのクライアントでもコマンドの始まり）
   - MySQL の名前の付いたコマンドは、OS やファイルに触る `MYSQL_CLIENT_COMMANDS`（`system` / `source` / `tee` /
-    `pager` / `edit`）を、行の頭か文の頭のものだけ断る（そこでしか認められない。列名の `system` は通す）
-  - **psql は字句での検出が守り、MySQL はクライアントの `--binary-mode` が守り**（`sql::client_command` の doc）。
-    psql の字句の読み方はこちらと同じで、`standard_conforming_strings` を切っても文字列が長くなる向きにしか
-    変わらないので、外の `\` を見落とさない。MySQL は `sql_mode`（`NO_BACKSLASH_ESCAPES` / `ANSI_QUOTES`）と
-    実行されるコメント（`/*! \! id */`）で読み方が変わり、字句では追い切れない。`--binary-mode` は標準入力から読む
-    ときに `charset` と `delimiter` 以外のクライアントのコマンドを止める（`\!` は `Unknown command`、`system` は
-    サーバーへ送られて構文エラー。上の迂回の例も含めて mariadb 11.8 で実測）。MySQL 5.6.3 からある。付けるのは
-    標準入力のときだけ（`client_args`）
+    `pager` / `edit`）を、文の頭のものだけ断る（クライアントは読みかけの文を持たないときだけコマンドと見なす。
+    文の途中の行頭の `source` は列名なので通す）
+  - **字句での検出は理由を見せるための補助で、守りはクライアントの側に置く**（`sql::client_command` の doc）。
+    **字句だけで守る形に戻さないこと。** Copilot のレビューで、どちらのクライアントにも字句をすり抜ける例が出た。
+    psql は `COPY ... FROM STDIN` のデータの中（`\.` でデータを終えたあとの `\!`）と、
+    `SET standard_conforming_strings = off` で `\'` を逃がしに変えた文字列の陰。MySQL は `sql_mode`
+    （`NO_BACKSLASH_ESCAPES` / `ANSI_QUOTES`）と実行されるコメント（`/*! \! id */`）
+  - **psql はスクリプトの先頭で `\restrict <鍵>` する**（`sql::restricted_script`。鍵は実行ごとの乱数）。以後は
+    `\unrestrict <鍵>` 以外の `\` のコマンドが `backslash commands are restricted` で失敗し、`ON_ERROR_STOP=1` で止まる。
+    上の迂回の例が、無しでは OS のコマンドを動かし、有りでは止まることを psql 18 で実測した。ふつうのスクリプトと
+    `COPY ... TO STDOUT` はそのまま動く。足した 1 行ぶん、エラーの `psql:<stdin>:N:` を戻す（`unshift_stdin_lines`）
+    - `\restrict` は 2025-08 の修正版（18 / 17.6 / 16.10 / 15.14 / 14.19 / 13.22）から。古い psql は 1 行目で
+      `invalid command \restrict` になり、何も実行しない（守りの無いまま流さない）。そのときは
+      `db-psql-no-restrict` で更新を促す（`restrict_unsupported`）。**見分けるのは `psql:<stdin>:1:` の行だけ**
+      （利用者の文字列の `\restrict` がサーバーのエラーの `LINE 1:` や `Failing row contains` に写るので、綴りだけで
+      見ると本当のエラーを隠す）
+  - エラーの行番号（`user_sql_error`）。ログの形は `psql:<stdin>:N:` を、足した 1 行ぶん戻して入力した SQL の行にする。
+    表の形は `psql:<stdin>:N:`（包んだ文の終わりの行）を外し、文の最初の行を `COPY (` と同じ行に置いて、`LINE n:` を
+    文の中の行番号（文の 1 行目が 1）にする（`plan_user_sql`）。先頭で落としたコメントや空の行のぶんは数に残せない:
+    psql は空白だけの行を送らないので、改行を足しても `LINE n:` は変わらない（実測）
+  - 成功しても psql が stderr に出す NOTICE / WARNING は、ログの後ろに添える（`Outcome::Done` が stderr を持ち帰る。
+    `DROP TABLE IF EXISTS` の `skipping` など。捨てるとテーブルが無かったことが分からない）
+  - **MySQL は標準入力から読むときに `--binary-mode` を付ける**（`client_args`）。`charset` と `delimiter` 以外の
+    クライアントのコマンドを止める（`\!` は `Unknown command`、`system` はサーバーへ送られて構文エラー。上の迂回の例も
+    含めて mariadb 11.8 で実測）。MySQL 5.6.3 からある
   - MariaDB の `--sandbox` も同じことをするが、MySQL と古い MariaDB のクライアントには無い（知らないオプションで
     起動しない）ので使わない
   - **コンテナに `sh` が無いと SQL を渡せない**（`db-container-sh-not-found`）。`sh` を挟んだ exec の 126 / 127 は

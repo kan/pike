@@ -389,13 +389,18 @@ const SQL_TOO_LONG = 'db-sql-too-long:'
 /** コンテナに `sh` が無く、入力した SQL を渡せなかったときのエラー（`db::CONTAINER_SH_NOT_FOUND`）。 */
 const CONTAINER_SH_NOT_FOUND = 'db-container-sh-not-found'
 
+/** psql が古く `\restrict` が無いので、入力した SQL を実行しなかったときのエラー（`db::PSQL_NO_RESTRICT`）。 */
+const PSQL_NO_RESTRICT = 'db-psql-no-restrict'
+
 /**
- * 入力した SQL を、実行する前に断ったか（クライアントのコマンド・長すぎる SQL）。断ったなら何も
- * 実行されていないので、テーブルの一覧を読み直さなくてよい。
+ * 入力した SQL を、1 文も実行しないまま終えたか（クライアントのコマンド・長すぎる SQL・古い psql・
+ * コンテナに `sh` が無い）。それならテーブルの一覧は変わっていないので、読み直さなくてよい。
  */
 export function rejectedBeforeRun(error: unknown): boolean {
   const s = String(error)
-  return s.startsWith(CLIENT_COMMAND) || s.startsWith(SQL_TOO_LONG)
+  return (
+    s.startsWith(CLIENT_COMMAND) || s.startsWith(SQL_TOO_LONG) || s === PSQL_NO_RESTRICT || s === CONTAINER_SH_NOT_FOUND
+  )
 }
 
 /**
@@ -410,6 +415,7 @@ export function dbErrorText(error: unknown, target: DbTarget): string {
     return t('db.sqlTooLong', { limit: kib.toLocaleString() })
   }
   if (s === CONTAINER_SH_NOT_FOUND) return t('db.containerShNotFound')
+  if (s === PSQL_NO_RESTRICT) return t('db.psqlNoRestrict')
   const missing = missingClients(error)
   if (!missing) return s
   const via = target.via
