@@ -2135,6 +2135,7 @@ pub fn run() {
             db::db_schema,
             db::db_rows,
             db::db_dump,
+            db::db_execute,
             search::search_detect_backend,
             search::search_execute,
             search::search_replace_apply,

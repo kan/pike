@@ -52,3 +52,12 @@ export interface DbProbe {
 }
 
 export type DbDumpFormat = 'csv' | 'tsv'
+
+/**
+ * 入力した SQL の結果（Rust の `db::DbExec`、#646）。表を返す 1 つの文は表で、それ以外（DDL・書き込み・
+ * 複数の文）はクライアントが人向けに出したログで返る。`truncated` はログを上限で切ったか、`tables` は
+ * 実行のあとのテーブルの一覧（DDL で増減するので Rust が同じ接続で読み直す。取れなければ null）。
+ */
+export type DbExec =
+  | { kind: 'rows'; result: DbResult }
+  | { kind: 'log'; text: string; truncated: boolean; tables: DbTable[] | null }

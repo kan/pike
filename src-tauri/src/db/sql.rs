@@ -1,9 +1,11 @@
 //! DB ビューワ（#632）の純粋な部分: 発行する SQL、識別子と文字列の引用、クライアントの
-//! 引数、出力の読み方、書き出しの整形。**外部プロセスに触らない**ので単体テストを置く。
+//! 引数、出力の読み方、書き出しの整形、入力された SQL の形の判定。**外部プロセスに触らない**ので
+//! 単体テストを置く。
 //!
-//! **発行する SQL はここにある固定のものだけ。** 任意の SQL を受ける口は無く、外から入る
+//! **一覧・スキーマ・レコードで発行する SQL はここにある固定のものだけ。** そこへ外から入る
 //! 文字列はテーブル名だけで、それも呼び出し側（`mod.rs`）が一覧に有ることを確かめてから
-//! `quote_ident` / `string_literal` を通して埋める。
+//! `quote_ident` / `string_literal` を通して埋める。利用者が入力した SQL（#646）は別の口
+//! （`db_execute`）で、加工せずにクライアントの引数の 1 語として渡す（`plan_user_sql`）。
 
 use serde::{Deserialize, Serialize};
 
@@ -44,11 +46,23 @@ pub struct ConnArgs<'a> {
     pub database: Option<&'a str>,
 }
 
+/// クライアントに出させる形。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    /// 機械で読む表（MySQL は `--batch`、PostgreSQL は `COPY ... CSV` を呼び出し側が組む）。
+    Records,
+    /// 人が読むログ（#646。表を返さない文と、複数の文をまとめて流すとき）。MySQL は
+    /// `--table -vv` で、文ごとに文そのもの・枠付きの表・`Query OK, N rows affected` を出す。
+    /// PostgreSQL は `-q` を外し、整列した表とコマンドの結果（`UPDATE 2` / `CREATE TABLE`）を出す
+    /// （どちらも実測。`-q` を付けるとコマンドの結果が出ない）。
+    Log,
+}
+
 /// クライアントの引数（プログラム名は含めない）。値は `--name=value` の 1 語で渡す
 /// （`-` で始まる値を別のオプションと読ませない）。シェルを挟まずに argv で渡るので、
 /// 値の中身による注入は起きない。
-pub fn client_args(engine: Engine, conn: &ConnArgs, sql: &str) -> Vec<String> {
-    let mut args: Vec<String> = match engine {
+pub fn client_args(engine: Engine, conn: &ConnArgs, sql: &str, mode: OutputMode) -> Vec<String> {
+    let mut args: Vec<&str> = match engine {
         // `--batch` はタブ区切り・1 行目が見出し。値の中のタブ・改行・`\` は `\t` / `\n` /
         // `\\` に置き換わり、NULL は `NULL` になる（`--raw` は付けない。付けると値の中の
         // 改行で行が割れる）。文字コードは付けないとクライアントの既定（古い版は latin1）で
@@ -62,13 +76,25 @@ pub fn client_args(engine: Engine, conn: &ConnArgs, sql: &str) -> Vec<String> {
             "--connect-timeout=10",
         ],
         // `-X` は `.psqlrc` を読まない（利用者の設定で出力の形が変わらないように）、
-        // `-w` はパスワードを聞かない（標準入力は閉じてあるので、聞かれると失敗で返る
-        // だけだが、待たずに済む）。
-        Engine::Postgres => vec!["-X", "-q", "-w", "-v", "ON_ERROR_STOP=1"],
+        // `-w` はパスワードを聞かない（標準入力は閉じてあるか SQL を流し込むので、聞かれても
+        // 答えられない。待たずに失敗で返る）。`VERBOSITY=verbose` はエラーに SQLSTATE と出どころの関数名
+        // （`LOCATION:` の行）を付ける。`copy_rejected` が見る手がかりで、どちらもサーバーの
+        // `lc_messages` で翻訳されない（本文は翻訳される）。行は `tidy_error` が見せる前に落とす。
+        Engine::Postgres => vec![
+            "-X",
+            "-w",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-v",
+            "VERBOSITY=verbose",
+        ],
+    };
+    match (engine, mode) {
+        (Engine::Mysql, OutputMode::Log) => args.extend(["--table", "-vv"]),
+        (Engine::Postgres, OutputMode::Records) => args.push("-q"),
+        _ => {}
     }
-    .into_iter()
-    .map(str::to_owned)
-    .collect();
+    let mut args: Vec<String> = args.into_iter().map(str::to_owned).collect();
     if let Some(h) = conn.host {
         args.push(format!("--host={h}"));
     }
@@ -94,10 +120,26 @@ pub fn client_args(engine: Engine, conn: &ConnArgs, sql: &str) -> Vec<String> {
             // 名前が決まっていないときは必ずある `postgres` へつなぐ。
             let db = conn.database.unwrap_or("postgres");
             args.push(format!("--dbname={db}"));
-            args.push(format!("--command={sql}"));
+            if sql_on_stdin(engine, mode) {
+                args.push("--file=-".to_owned());
+            } else {
+                args.push(format!("--command={sql}"));
+            }
         }
     }
     args
+}
+
+/// SQL を引数ではなく標準入力で渡すか。**PostgreSQL のログの形（入力した SQL）だけ**。
+///
+/// `--command` に複数の文を渡すと、psql は 1 回の問い合わせとして送り、サーバーはそれを 1 つの暗黙の
+/// トランザクションで実行する。途中の文が失敗すると前の文も取り消されるのに、ログには前の文の結果
+/// （`INSERT 0 1`）が残る。`CREATE INDEX CONCURRENTLY` のようなトランザクションの中で実行できない文も
+/// 通らない。標準入力（`--file=-`）なら psql が文ごとに分けて送るので、文ごとに確定し、
+/// `ON_ERROR_STOP=1` で失敗した文の前までが残る（エラーに `psql:<stdin>:4:` と行も付く。どれも実測）。
+/// MySQL は `--execute` でもクライアントが文ごとに分けて送るので、引数のまま。
+pub fn sql_on_stdin(engine: Engine, mode: OutputMode) -> bool {
+    engine == Engine::Postgres && mode == OutputMode::Log
 }
 
 /// 識別子の引用（MySQL はバッククォート、PostgreSQL は二重引用符。中の引用符は二重化）。
@@ -228,6 +270,254 @@ pub fn rows_sql(engine: Engine, schema: Option<&str>, table: &str, limit: Option
     }
 }
 
+/// 入力された SQL（#646）の流し方。
+#[derive(Debug, PartialEq, Eq)]
+pub enum UserSql {
+    /// 表を返す 1 つの文。`OutputMode::Records` で流し、表で見せる（PostgreSQL は `COPY` で包んだもの）。
+    Query(String),
+    /// それ以外（DDL・書き込み・複数の文）。入力をそのまま `OutputMode::Log` で流す。
+    Script,
+}
+
+/// 入力された SQL の流し方を決める。**表で見せるのは、表を返す文が 1 つだけのとき**:
+/// MySQL の `--batch` は複数の結果を見出しの区切りなしに続けて出し、PostgreSQL の `COPY` は
+/// 1 つの文しか包めない。空（空白とコメントだけ）なら `None`。
+///
+/// PostgreSQL の `WITH ... UPDATE`（`RETURNING` なし）や `SELECT ... INTO` は `COPY` が拒むので、
+/// 呼び出し側が `copy_rejected` を見て `Script` で流し直す（拒まれた文は実行されていない）。
+pub fn plan_user_sql(engine: Engine, sql: &str) -> Option<UserSql> {
+    let shape = sql_shape(engine, sql);
+    if shape.statements == 0 {
+        return None;
+    }
+    let queries: &[&str] = match engine {
+        Engine::Mysql => &[
+            "SELECT", "WITH", "VALUES", "TABLE", "SHOW", "DESCRIBE", "DESC", "EXPLAIN",
+        ],
+        // `SHOW` / `EXPLAIN` は `COPY` で包めないので、ログ（整列した表）で見せる。
+        Engine::Postgres => &["SELECT", "WITH", "VALUES", "TABLE"],
+    };
+    if shape.statements > 1 || !queries.contains(&shape.first_word.as_str()) {
+        return Some(UserSql::Script);
+    }
+    // 前後の `;` とコメントは落とす（`COPY (...)` の中に `;` は書けず、行末のコメントは閉じ括弧を
+    // 隠す。先頭の空の文は MySQL が `No query specified` で拒む）。前後に改行を挟むのは、文の途中の
+    // `--` のコメントが包んだ側を食わないように。
+    let body = &sql[shape.body_start..shape.body_end];
+    Some(UserSql::Query(match engine {
+        Engine::Mysql => body.to_owned(),
+        Engine::Postgres => pg_copy(&format!("\n{body}\n")),
+    }))
+}
+
+/// `COPY (...)` で包んだせいで PostgreSQL が拒んだか（`plan_user_sql`）。拒むのは解析の段階なので、
+/// 包んだ文は実行されていない。
+///
+/// **見るのは SQLSTATE（`0A000`＝feature_not_supported）と、出どころの関数名**（`BeginCopyTo`。
+/// PostgreSQL 13 までは `BeginCopy`）。本文（`COPY query must have a RETURNING clause` など）は
+/// サーバーの `lc_messages` で翻訳されるので照合しない。`VERBOSITY=verbose`（`client_args`）が要る。
+pub fn copy_rejected(engine: Engine, stderr: &str) -> bool {
+    engine == Engine::Postgres && stderr.contains("0A000") && stderr.contains("BeginCopy")
+}
+
+/// エラーを見せる形にする。PostgreSQL の `VERBOSITY=verbose` が足す `LOCATION:` の行（サーバーの
+/// ソースの位置）を落とす。見出しの語は翻訳されるので、`関数名, ファイル.c:行` の形で見分ける。
+pub fn tidy_error(msg: &str) -> String {
+    let is_location = |line: &str| {
+        line.rsplit_once(", ").is_some_and(|(_, at)| {
+            at.rsplit_once(".c:")
+                .is_some_and(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        })
+    };
+    msg.lines()
+        .filter(|l| !is_location(l))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 入力された SQL を字句で読んだ結果。
+#[derive(Debug, PartialEq, Eq)]
+struct SqlShape {
+    /// 中身のある文の数（空白とコメントだけの文は数えない）。
+    statements: usize,
+    /// 最初の文の最初の語（大文字。先頭の `(` は飛ばす）。
+    first_word: String,
+    /// 最初の意味のある文字の位置（先頭の空白・コメント・空の文を除く）。
+    body_start: usize,
+    /// 最後の意味のある文字の直後（末尾の `;`・空白・コメントを除いた長さ）。
+    body_end: usize,
+}
+
+/// 識別子の一部になりうるバイトか（ASCII の英数字と `_`、と UTF-8 の多バイト文字）。
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
+}
+
+/// 文字列・引用した識別子・コメントを飛ばしながら、文の数と最初の語を数える。**SQL の構文は
+/// 解析しない**（流し方を決めるだけ。読み違えると、表ではなくログで見せるか、包んだ文をクライアントが
+/// エラーで返す）。送る SQL は前後の空白・コメント・`;` しか落とさないので、コメントの読み違いで
+/// 文の中身が欠けないよう、MySQL の実行されるコメント（`/*! ... */`）は中身として数える。
+fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
+    let bytes = sql.as_bytes();
+    let mut shape = SqlShape {
+        statements: 0,
+        first_word: String::new(),
+        body_start: 0,
+        body_end: 0,
+    };
+    let mut in_statement = false;
+    let mut i = 0;
+    // 意味のある字句を 1 つ読んだ（`start..end`）。
+    let mark = |shape: &mut SqlShape, in_statement: &mut bool, start: usize, end: usize| {
+        if !*in_statement {
+            *in_statement = true;
+            shape.statements += 1;
+            if shape.statements == 1 {
+                shape.body_start = start;
+            }
+        }
+        if shape.statements == 1 && shape.first_word.is_empty() {
+            let word: String = sql[start..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphabetic() || *c == '_')
+                .collect();
+            shape.first_word = word.to_ascii_uppercase();
+        }
+        shape.body_end = end;
+    };
+    while i < bytes.len() {
+        let b = bytes[i];
+        let next = bytes.get(i + 1).copied();
+        match b {
+            b if b.is_ascii_whitespace() => i += 1,
+            b';' => {
+                in_statement = false;
+                i += 1;
+            }
+            // `(SELECT ...) UNION ...` の最初の語を拾うため、括弧は語の前で飛ばす（中身として数える）。
+            // （`(` の位置から語を取ると空なので、最初の語は次の字句で決まる）。
+            b'(' => {
+                mark(&mut shape, &mut in_statement, i, i + 1);
+                i += 1;
+            }
+            b'-' if next == Some(b'-')
+                && (engine == Engine::Postgres
+                    || bytes
+                        .get(i + 2)
+                        .is_none_or(|c| c.is_ascii_whitespace() || c.is_ascii_control())) =>
+            {
+                i = line_end(bytes, i);
+            }
+            b'#' if engine == Engine::Mysql => i = line_end(bytes, i),
+            b'/' if next == Some(b'*') => {
+                let end = block_comment_end(engine, bytes, i);
+                // MySQL の `/*! ... */` と MariaDB の `/*M! ... */` はサーバーが実行する。
+                let executed = engine == Engine::Mysql
+                    && (bytes[i + 2..].starts_with(b"!") || bytes[i + 2..].starts_with(b"M!"));
+                if executed {
+                    mark(&mut shape, &mut in_statement, i, end);
+                }
+                i = end;
+            }
+            b'\'' | b'"' | b'`' if b != b'`' || engine == Engine::Mysql => {
+                // MySQL の文字列は `\` でも逃がす。PostgreSQL は `E'...'` のときだけ（`E` が
+                // 識別子の末尾でないこと。`LIKE'a\'` の `E` は接頭辞ではない）。
+                let backslash = match engine {
+                    Engine::Mysql => b != b'`',
+                    Engine::Postgres => {
+                        b == b'\''
+                            && i > 0
+                            && matches!(bytes[i - 1], b'E' | b'e')
+                            && (i < 2 || !is_ident_byte(bytes[i - 2]))
+                    }
+                };
+                let end = quoted_end(bytes, i, b, backslash);
+                mark(&mut shape, &mut in_statement, i, end);
+                i = end;
+            }
+            // 識別子の中の `$`（`a$b`）はドル引用の始まりではない。
+            b'$' if engine == Engine::Postgres && (i == 0 || !is_ident_byte(bytes[i - 1])) => {
+                let end = dollar_end(sql, i).unwrap_or(i + 1);
+                mark(&mut shape, &mut in_statement, i, end);
+                i = end;
+            }
+            _ => {
+                let len = sql[i..].chars().next().map_or(1, char::len_utf8);
+                mark(&mut shape, &mut in_statement, i, i + len);
+                i += len;
+            }
+        }
+    }
+    shape
+}
+
+fn line_end(bytes: &[u8], from: usize) -> usize {
+    memchr::memchr(b'\n', &bytes[from..]).map_or(bytes.len(), |p| from + p + 1)
+}
+
+/// `/*` で始まるコメントの直後の位置。**PostgreSQL のブロックコメントは入れ子になる**
+/// （`/* /* */ ; */` は 1 つのコメント）。MySQL は入れ子にしない。閉じていなければ末尾。
+fn block_comment_end(engine: Engine, bytes: &[u8], start: usize) -> usize {
+    let mut depth = 0usize;
+    let mut i = start;
+    while i + 1 < bytes.len() {
+        match (bytes[i], bytes[i + 1]) {
+            (b'/', b'*') if depth == 0 || engine == Engine::Postgres => {
+                depth += 1;
+                i += 2;
+            }
+            (b'*', b'/') => {
+                depth -= 1;
+                i += 2;
+                if depth == 0 {
+                    return i;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// `quote` で始まる引用の直後の位置。引用符の二重化（`''`）を中身として読む。閉じていなければ末尾。
+fn quoted_end(bytes: &[u8], start: usize, quote: u8, backslash: bool) -> usize {
+    let mut i = start + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' if backslash => i += 2,
+            c if c == quote => {
+                if bytes.get(i + 1) == Some(&quote) {
+                    i += 2;
+                } else {
+                    return i + 1;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// PostgreSQL のドル引用（`$$...$$` / `$tag$...$tag$`）の直後の位置。`$1` のような引数は引用ではない
+/// （`None`）。
+fn dollar_end(sql: &str, start: usize) -> Option<usize> {
+    let rest = &sql[start + 1..];
+    let tag_len = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    let tag = &rest[..tag_len];
+    if !rest[tag_len..].starts_with('$') || tag.starts_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    let open = &sql[start..start + tag_len + 2];
+    let body = start + open.len();
+    Some(
+        sql[body..]
+            .find(open)
+            .map_or(sql.len(), |p| body + p + open.len()),
+    )
+}
+
 /// 1 つの値。`None` が NULL。
 pub type Cell = Option<String>;
 
@@ -235,15 +525,31 @@ pub type Cell = Option<String>;
 /// （コンテナの exec は出力を任意の塊で返す）。改行のバイトは UTF-8 の多バイト文字の途中に
 /// 現れないので、改行で切ってから文字列にする。
 pub struct RecordReader {
-    engine: Engine,
+    format: LineFormat,
     pending: Vec<u8>,
     csv: CsvState,
 }
 
+/// 出力の読み方（`RecordReader::new` が種類と形から決める）。
+#[derive(Clone, Copy)]
+enum LineFormat {
+    /// `mysql --batch` のタブ区切り。
+    MysqlBatch,
+    /// PostgreSQL の `COPY ... CSV`。
+    PgCsv,
+    /// ログ（`OutputMode::Log`）。1 行を 1 つの値のレコードにする。
+    Lines,
+}
+
 impl RecordReader {
-    pub fn new(engine: Engine) -> Self {
+    pub fn new(engine: Engine, mode: OutputMode) -> Self {
+        let format = match (mode, engine) {
+            (OutputMode::Log, _) => LineFormat::Lines,
+            (OutputMode::Records, Engine::Mysql) => LineFormat::MysqlBatch,
+            (OutputMode::Records, Engine::Postgres) => LineFormat::PgCsv,
+        };
         RecordReader {
-            engine,
+            format,
             pending: Vec::new(),
             csv: CsvState::default(),
         }
@@ -274,16 +580,16 @@ impl RecordReader {
     }
 
     fn feed(&mut self, text: &str, out: &mut impl FnMut(Vec<Cell>)) {
-        match self.engine {
-            Engine::Mysql => {
-                // **空の行も 1 行として渡す。** 1 列のテーブルの空文字の値は空の行で出る。
-                // 行はどれも改行で終わるので、末尾に余分な空の行はできない。
-                for line in text.split_inclusive('\n') {
-                    let line = line.trim_end_matches('\n').trim_end_matches('\r');
-                    out(mysql_batch_line(line));
-                }
-            }
-            Engine::Postgres => self.csv.feed(text, out),
+        // **空の行も 1 行として渡す。** 1 列のテーブルの空文字の値は空の行で出る。
+        // 行はどれも改行で終わるので、末尾に余分な空の行はできない。
+        let lines = || {
+            text.split_inclusive('\n')
+                .map(|l| l.trim_end_matches('\n').trim_end_matches('\r'))
+        };
+        match self.format {
+            LineFormat::MysqlBatch => lines().for_each(|l| out(mysql_batch_line(l))),
+            LineFormat::PgCsv => self.csv.feed(text, out),
+            LineFormat::Lines => lines().for_each(|l| out(vec![Some(l.to_owned())])),
         }
     }
 }
@@ -426,7 +732,7 @@ mod tests {
     use super::*;
 
     fn read_all(engine: Engine, chunks: &[&[u8]]) -> Vec<Vec<Cell>> {
-        let mut reader = RecordReader::new(engine);
+        let mut reader = RecordReader::new(engine, OutputMode::Records);
         let mut out = Vec::new();
         for c in chunks {
             reader.push(c, &mut |r| out.push(r));
@@ -523,15 +829,166 @@ mod tests {
             user: Some("-root"),
             database: None,
         };
-        let args = client_args(Engine::Mysql, &conn, "SELECT 1");
+        let args = client_args(Engine::Mysql, &conn, "SELECT 1", OutputMode::Records);
         assert!(args.contains(&"--user=-root".to_owned()));
         assert!(args.contains(&"--port=3306".to_owned()));
         assert!(!args.iter().any(|a| a.starts_with("--database")));
         assert_eq!(args.last().unwrap(), "--execute=SELECT 1");
 
-        let args = client_args(Engine::Postgres, &ConnArgs::default(), "SELECT 1");
+        let pg = |mode| client_args(Engine::Postgres, &ConnArgs::default(), "SELECT 1", mode);
+        let args = pg(OutputMode::Records);
         assert!(args.contains(&"--dbname=postgres".to_owned()));
         assert!(!args.iter().any(|a| a.contains("password")));
+        // ログは `-q` を外す（付けるとコマンドの結果が出ない）。MySQL は表と結果を文ごとに出させる。
+        assert!(args.contains(&"-q".to_owned()));
+        assert!(!pg(OutputMode::Log).contains(&"-q".to_owned()));
+        let args = client_args(Engine::Mysql, &conn, "x", OutputMode::Log);
+        assert!(args.contains(&"--table".to_owned()) && args.contains(&"-vv".to_owned()));
+    }
+
+    #[test]
+    fn user_sql_shows_a_single_query_as_a_table() {
+        use UserSql::{Query, Script};
+        let plan = |e, s| plan_user_sql(e, s);
+        assert_eq!(plan(Engine::Mysql, " \n-- c\n"), None);
+        assert_eq!(plan(Engine::Mysql, ";;"), None);
+        // 末尾の `;` とコメントは落とす。
+        assert_eq!(
+            plan(Engine::Mysql, "select * from t; -- all\n"),
+            Some(Query("select * from t".to_owned()))
+        );
+        assert_eq!(
+            plan(Engine::Mysql, "(SELECT 1) UNION (SELECT 2)"),
+            Some(Query("(SELECT 1) UNION (SELECT 2)".to_owned()))
+        );
+        assert_eq!(
+            plan(Engine::Postgres, "/* x */ SELECT 1 -- one"),
+            Some(Query(pg_copy("\nSELECT 1\n")))
+        );
+        assert_eq!(
+            plan(Engine::Mysql, "SHOW TABLES"),
+            Some(Query("SHOW TABLES".to_owned()))
+        );
+        // PostgreSQL の SHOW は COPY で包めない。
+        assert_eq!(plan(Engine::Postgres, "SHOW TimeZone"), Some(Script));
+        assert_eq!(plan(Engine::Mysql, "CREATE TABLE t (a int)"), Some(Script));
+        assert_eq!(plan(Engine::Mysql, "SELECT 1; SELECT 2"), Some(Script));
+    }
+
+    #[test]
+    fn user_sql_skips_semicolons_in_strings_and_comments() {
+        let shape = |e, s| sql_shape(e, s).statements;
+        assert_eq!(
+            shape(Engine::Mysql, "SELECT ';' , `a;b`, \"c;\" /* ; */ # ;\n"),
+            1
+        );
+        assert_eq!(shape(Engine::Mysql, r"SELECT 'it\'s;'"), 1);
+        assert_eq!(shape(Engine::Postgres, "SELECT 'it''s;', \"a;\" -- ;"), 1);
+        assert_eq!(shape(Engine::Postgres, r"SELECT E'\';'"), 1);
+        // 標準の文字列では `\` は逃がさない（`'\'` で閉じる）。
+        assert_eq!(shape(Engine::Postgres, r"SELECT '\'; SELECT 2"), 2);
+        assert_eq!(
+            shape(
+                Engine::Postgres,
+                "CREATE FUNCTION f() RETURNS int AS $b$ SELECT 1; $b$ LANGUAGE sql; SELECT $1"
+            ),
+            2
+        );
+        // MySQL の `--` は後ろに空白が要る（`1--1` は引き算）。
+        let s = sql_shape(Engine::Mysql, "SELECT 1--1");
+        assert_eq!(s.body_end, "SELECT 1--1".len());
+        assert_eq!(
+            sql_shape(Engine::Postgres, "SELECT 1--1").body_end,
+            "SELECT 1".len()
+        );
+    }
+
+    #[test]
+    fn user_sql_keeps_the_text_the_server_runs() {
+        use UserSql::{Query, Script};
+        // 先頭の空の文は落とす（MySQL は `No query specified` で拒み、COPY の中では構文エラー）。
+        assert_eq!(
+            plan_user_sql(Engine::Mysql, ";\n SELECT 1"),
+            Some(Query("SELECT 1".to_owned()))
+        );
+        assert_eq!(
+            plan_user_sql(Engine::Postgres, "; SELECT 1;"),
+            Some(Query(pg_copy("\nSELECT 1\n")))
+        );
+        // MySQL の実行されるコメントは中身（落とすと WHERE が消える）。
+        let sql = "SELECT * FROM t /*!50000 WHERE id = 1 */";
+        assert_eq!(
+            plan_user_sql(Engine::Mysql, sql),
+            Some(Query(sql.to_owned()))
+        );
+        assert_eq!(
+            plan_user_sql(Engine::Mysql, "/*!40101 SET NAMES utf8 */;"),
+            Some(Script)
+        );
+        assert_eq!(
+            plan_user_sql(Engine::Mysql, "/*M!100100 SET a=1 */"),
+            Some(Script)
+        );
+        // ただのコメントは落とす。
+        assert_eq!(plan_user_sql(Engine::Mysql, "/* c */"), None);
+    }
+
+    #[test]
+    fn pg_lexer_follows_identifiers_and_nested_comments() {
+        let count = |s| sql_shape(Engine::Postgres, s).statements;
+        // 識別子の中の `$` はドル引用ではない。
+        assert_eq!(count("SELECT foo$x$ FROM t; DROP TABLE u"), 2);
+        // 識別子の末尾の `E` は `E'...'` の接頭辞ではない（`\` で逃がさない）。
+        assert_eq!(count(r"SELECT 1 WHERE a LIKE'x\'; SELECT 2"), 2);
+        // ブロックコメントは入れ子になる。
+        assert_eq!(count("/* /* */ ; */ SELECT 1"), 1);
+        // MySQL は入れ子にしない（最初の `*/` で閉じる）。
+        assert_eq!(sql_shape(Engine::Mysql, "/* /* */ SELECT 1").statements, 1);
+    }
+
+    #[test]
+    fn copy_rejections_are_recognized() {
+        // `VERBOSITY=verbose` の実際の出力（postgres 18 で取ったもの）。
+        let err = "ERROR:  0A000: COPY query must have a RETURNING clause\nLOCATION:  BeginCopyTo, copyto.c:792";
+        assert!(copy_rejected(Engine::Postgres, err));
+        assert!(!copy_rejected(Engine::Mysql, err));
+        // 本文が翻訳されていても、SQLSTATE と関数名で分かる。
+        assert!(copy_rejected(
+            Engine::Postgres,
+            "ERROR:  0A000: (翻訳された本文)\n場所:  BeginCopyTo, copyto.c:792"
+        ));
+        let other = "ERROR:  42P01: relation \"nope\" does not exist\nLOCATION:  parserOpenTable, parse_relation.c:1498";
+        assert!(!copy_rejected(Engine::Postgres, other));
+    }
+
+    #[test]
+    fn tidy_error_drops_the_source_location() {
+        let err = "ERROR:  42P01: relation \"nope\" does not exist\nLINE 2: SELECT * FROM nope\n                      ^\nLOCATION:  parserOpenTable, parse_relation.c:1498";
+        assert_eq!(
+            tidy_error(err),
+            "ERROR:  42P01: relation \"nope\" does not exist\nLINE 2: SELECT * FROM nope\n                      ^"
+        );
+        // MySQL のエラーはそのまま。
+        let my =
+            "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax near 'a, b.c:1'";
+        assert_eq!(tidy_error(my), my);
+    }
+
+    #[test]
+    fn log_mode_reads_one_line_per_record() {
+        let mut reader = RecordReader::new(Engine::Postgres, OutputMode::Log);
+        let mut out = Vec::new();
+        reader.push(b"UPDATE 2\n a, b \n\nCREATE", &mut |r| out.push(r));
+        reader.finish(&mut |r| out.push(r));
+        assert_eq!(
+            out,
+            vec![
+                vec![s("UPDATE 2")],
+                vec![s(" a, b ")],
+                vec![s("")],
+                vec![s("CREATE")]
+            ]
+        );
     }
 
     #[test]

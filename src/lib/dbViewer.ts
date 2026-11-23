@@ -6,7 +6,7 @@
  */
 
 import { t } from '../i18n'
-import type { DbDumpFormat, DbEngine, DbProbe, DbResult, DbTarget, DbVia } from '../types/db'
+import type { DbDumpFormat, DbEngine, DbProbe, DbResult, DbTable, DbTarget, DbVia } from '../types/db'
 import { type ShellType, shellFromId, shellId, shellProfileLabel } from '../types/tab'
 import type { CsvData } from './csvPreview'
 
@@ -34,6 +34,16 @@ export function dbResultToCsv(result: DbResult): CsvData {
     rows: result.rows.map((cells, i) => ({ num: i + 1, cells })),
     delimiter: '\t',
   }
+}
+
+/**
+ * テーブルの一覧の右に出す文字（#646）。VIEW は件数の代わりに `VIEW` と出す（件数の推定を持たない
+ * ので空になり、テーブルと見分けがつかないため）。`kind` は information_schema の `table_type` で、
+ * MySQL のシステムのビューは `SYSTEM VIEW` になる。
+ */
+export function tableBadge(table: DbTable): string | null {
+  if (/\bVIEW$/i.test(table.kind)) return 'VIEW'
+  return table.approxRows === null ? null : table.approxRows.toLocaleString()
 }
 
 /** 接続の画面の入力。空の欄は「指定なし」。 */

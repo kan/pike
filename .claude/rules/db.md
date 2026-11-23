@@ -13,13 +13,18 @@ paths:
 
 # 簡易 DB ビューワ（#632）実装ルール
 
-MySQL / PostgreSQL のテーブルの一覧・中身・スキーマを表で見て、CSV / TSV でコピー・保存する。
+MySQL / PostgreSQL のテーブルの一覧・レコード・スキーマを表で見て、CSV / TSV でコピー・保存する。
+入力した SQL も実行する（#646。下の「入力した SQL」）。
 接続先はローカル（ホスト）・WSL・Docker コンテナだけ。実体は `src-tauri/src/db/`（`mod.rs` が
 実行、`sql.rs` が SQL と出力の読み方）、`src/components/tabs/DbTab.vue`、`src/lib/dbViewer.ts`。
+UI の「レコード」はコードでは `rows`（`db_rows` / `view === 'rows'`）のまま。
 
 ## やらないこと（広げるときは issue から）
 
-- **任意の SQL を受けない**（入力欄を持たない）。書き込み系（INSERT / UPDATE / DELETE / DDL）も無い
+- **テーブルの一覧・スキーマ・レコードのクエリに、入力した文字列を混ぜない**（下の「発行する SQL」）。
+  入力した SQL は `db_execute` の 1 つの口だけが受ける
+- 入力した SQL の実行の中止、書き込み系の文の確認ダイアログ、全件の書き出し（SQL の結果の保存は表示した行だけ）
+- Redis などほかの DB は別の issue（Redis は #647）
 - SSH 踏み台・リモートホスト（musql の領分）、MySQL / PostgreSQL 以外（SQLite など）
 - 接続情報の管理画面（保存した接続はパネルの行から消せるだけ。下の「接続の保存」）。**パスワードは保存
   しない**（localStorage・セッション・設定のどれにも書かない）。DB のタブはセッションにも残さない
@@ -48,9 +53,9 @@ MySQL / PostgreSQL のテーブルの一覧・中身・スキーマを表で見�
 - **クライアントが無ければ「`mysql` が見つからない」と出して止まる**（rg と同じく外部依存は明示する）。
   Rust は `db-client-not-found:mysql,mariadb` の形で返し、フロント（`missingClients`）が文言にする
 
-## 発行する SQL は `sql.rs` の固定のものだけ
+## 一覧・スキーマ・レコードで発行する SQL は `sql.rs` の固定のものだけ
 
-DB の一覧・テーブルの一覧・スキーマ・中身の 4 種類。**外から入る文字列はテーブル名だけ**で、
+DB の一覧・テーブルの一覧・スキーマ・レコードの 4 種類。**外から入る文字列はテーブル名だけ**で、
 
 - **一覧に有るものだけを受ける**（`ensure_table`。実行のたびにテーブルの一覧を取り直して確かめる）。
   往復が 1 回増えるが、引用に漏れがあっても届く名前が無い形にしておく
@@ -59,11 +64,69 @@ DB の一覧・テーブルの一覧・スキーマ・中身の 4 種類。**外
   に左右されず、どんな文字列も引用を破れない。`CONVERT(... USING)` にしないのは照合順序の強さが変わり、
   information_schema の列と比べたときに照合順序の混在で落ちうるため）、**PostgreSQL は `E'...'`**（`\` と `'`
   を二重化。`E` を付ければ `standard_conforming_strings` に依らない）
-- PostgreSQL の一覧とスキーマは `current_schema()` のものだけ。**中身は一覧が返したスキーマで修飾する**
+- PostgreSQL の一覧とスキーマは `current_schema()` のものだけ。**レコードは一覧が返したスキーマで修飾する**
   （`"public"."t"`。修飾しないと search_path で解決され、暗黙に先に探される `pg_catalog` と `pg_temp` に
   同じ名前があると、一覧で確かめたのとは別のテーブルを読む）。MySQL は今の DB の中でしか探さないので修飾しない
 - 値は argv の 1 語ずつで渡す（`--user=...` の形。`-` で始まる値を別のオプションと読ませない）。シェルを
   挟まない（WSL の `sh` も `"$@"` で受けるだけ）ので、値の中身による注入は起きない
+
+## 入力した SQL（#646）
+
+DB タブの「SQL」で入力した SQL を、**加工せずに**クライアントへ渡す（`db_execute`）。MySQL は引数の 1 語
+（`--execute=`）、PostgreSQL は表の形なら `--command=`、ログの形なら標準入力（下の「ログの形」）。DDL も書き込みも
+受け、確認は挟まない（issue の方針。権限は接続したユーザーのもの）。SQL の中身がシェルに読まれることは無い
+（シェルを挟まないか、挟むコンテナの `sh` も変数を展開して渡すだけ）。
+
+- **流し方は `sql::plan_user_sql` が決める。** 結果を返す文が 1 つだけ（MySQL は `SELECT` / `WITH` / `VALUES` /
+  `TABLE` / `SHOW` / `DESCRIBE` / `DESC` / `EXPLAIN`、PostgreSQL は `SELECT` / `WITH` / `VALUES` / `TABLE`）なら
+  表（`UserSql::Query`）、それ以外はクライアントの人向けの出力（`UserSql::Script`、`OutputMode::Log`）
+  - **表にするのは 1 文だけ。** MySQL の `--batch` は複数の結果を見出しの区切り無しに続けて出し、PostgreSQL の
+    `COPY` は 1 文しか包めない（`COPY (SELECT 1; SELECT 2)` は構文エラー。実測）
+  - 文の数と最初の語は `sql_shape` が字句で数える（文字列・引用した識別子・コメント・PostgreSQL のドル引用を
+    飛ばす）。**構文は解析しない**。読み違えると流し方が変わる（包んだ文がエラーで返る）。送る SQL から落とすのは
+    前後の空白・コメント・`;` だけ
+  - **MySQL の実行されるコメント（`/*! ... */`、MariaDB の `/*M! ... */`）は中身として数える。** 落とすと
+    `SELECT * FROM t /*!50000 WHERE id = 1 */` の WHERE が消える（実測）
+  - MySQL の `--` は後ろに空白か制御文字が要る（`1--1` は引き算）。`#` も行末までのコメント
+  - PostgreSQL のブロックコメントは入れ子になる（`block_comment_end`）。`E'...'` の `E` と、ドル引用の `$` は、
+    識別子の続き（`LIKE'..'` の `E`、`a$b$`）なら接頭辞と見なさない（`is_ident_byte`）
+  - 表にするときは前後の `;` とコメントを落とし（`body_start..body_end`。先頭の空の文は MySQL が
+    `No query specified` で拒む）、PostgreSQL は前後に改行を挟んで `COPY (...)` で包む（行末の `--` のコメントが
+    閉じ括弧を隠さないように）
+  - 表の形でも書き換える文は通りうる（MySQL の `WITH ... DELETE`、`SELECT ... INTO @v`）。結果の表が無ければ
+    「返った行はありません」と出す（行数の 0 とは言わない）
+- **PostgreSQL は `COPY` が拒む文がある**（`WITH ... UPDATE` で `RETURNING` が無いもの＝`COPY query must have a
+  RETURNING clause`、`SELECT ... INTO`＝`COPY (SELECT INTO) is not supported`。どちらも実測）。拒むのは解析の段階で
+  文は実行されていないので、`copy_rejected` を見てログの形で流し直す
+  - **見分けるのは SQLSTATE（`0A000`）と出どころの関数名（`BeginCopyTo`）で、本文は照合しない。** 本文はサーバーの
+    `lc_messages` で翻訳される。どちらも psql の `-v VERBOSITY=verbose`（`client_args`）が付ける（`ERROR:  0A000: ...` と
+    `LOCATION:  BeginCopyTo, copyto.c:792`。実測）。`LOCATION:` の行は見せる前に `tidy_error` が落とす（見出しの語も
+    翻訳されるので、`関数名, ファイル.c:行` の形で見分ける）
+- **ログの形（`OutputMode::Log`）**: MySQL は `--batch --table -vv`。文ごとに文そのもの・枠付きの表・
+  `Query OK, N rows affected` を出し、最後に `Bye` の行を出す（`LogSink::into_text` が MySQL のときだけ、ちょうど
+  `Bye` の最後の行を落とす。mariadb 11.8 で実測）。PostgreSQL は `-q` を外す。`-q` だと `UPDATE 2` / `CREATE TABLE`
+  のコマンドの結果が出ない（postgres 18 で実測）
+  - **PostgreSQL は SQL を標準入力（`--file=-`）で渡す**（`sql::sql_on_stdin`）。`--command` に複数の文を渡すと
+    1 回の問い合わせになり、サーバーは 1 つの暗黙のトランザクションで実行する。途中で失敗すると前の文も取り消される
+    のに、ログには前の文の結果が残る（実測。`CREATE TABLE` と `INSERT` のあとの失敗で、テーブルごと無くなる）。
+    標準入力なら psql が文ごとに送るので文ごとに確定し、エラーに `psql:<stdin>:4:` と行も付く
+    - シェルの経路はパイプで書く（`ShellIo`。書き込みは別のスレッドで、出力を読みながら）
+    - **コンテナの経路は、SQL を exec の環境変数（`STDIN_ENV`）で渡し、コンテナの `sh` で流し込む**
+      （`printf '%s' "$PIKE_SQL" | exec "$0" "$@"`）。bollard の exec に `attach_stdin` で書いて書き込み側を閉じると、
+      接続ごと閉じて出力も終了コードも取れない（実測。終了コードが -1 のまま返る）。コンテナに `sh` が要る
+  - 1 行を 1 つの値のレコードとして読み（`RecordReader` の `OutputMode::Log`）、`LOG_MAX_BYTES`（1MB）で切る
+  - **エラーのときは、それまでのログを前に付けて返す**（`Outcome::Failed` が sink を持ち帰る）。複数の文は失敗した
+    文の前まで実行されて確定している（MySQL は `--force` を付けないので止まる、PostgreSQL は `ON_ERROR_STOP=1`）
+- **表は `ROW_LIMIT` 行まで持つ**（`Collect` の `limit`。SQL に `LIMIT` を足せないので、超えた行は読み捨てる）。
+  値の切り詰め（`CELL_MAX_CHARS`）はレコードと同じ。保存は表示している行だけ（全件の書き出しは持たない）
+- 待つのは `EXEC_TIMEOUT`（書き出しと同じ 10 分）。中止はできない。コンテナの exec は待ち切れても中で走り続ける
+  （書き出しと同じ既知の制約）
+- ログの形で流したあとは、**同じ `Session` でテーブルの一覧を読み直して結果に添える**（`DbExec::Log` の `tables`。
+  DDL で増減するので。別のコマンドで `db_probe` を流し直すと、inspect とクライアントの解決と 3 回の問い合わせが
+  余分にかかる）。エラーのときは一覧が添わないので、フロントが `db_probe` で読み直す（`DbTab.vue` の `refreshTables`）。
+  選んでいたテーブルが一覧から消えたら選択を外す（`setTables`）。接続先が変わったら SQL の結果は捨て、入力は残す
+- 範囲を選んでいれば、その部分だけを実行する。キーは `Mod+Enter`（`matchChord`。`KeyboardShortcuts.vue` と
+  マニュアルの DB ビューワの節）
 
 ## パスワード
 
@@ -109,7 +172,7 @@ DB の一覧・テーブルの一覧・スキーマ・中身の 4 種類。**外
   戻して `splitDelimited` で分け直す往復はしない。**NULL は `null` のセル**で、文字列の印（番兵）にしない。
   描くときは `csv-null` の class の空のセル（`NULL` の文字は CSS の `::after` で描くので、文字選択の
   コピーに入らない）、並べ替えでは空と同じく末尾、選択のコピーでは空の欄
-- **中身は先頭 `ROW_LIMIT`（2,000）行だけを読む**（SQL で 1 行多く取り、超えたら `truncated` で帯を出す）。
+- **レコードは先頭 `ROW_LIMIT`（2,000）行だけを読む**（SQL で 1 行多く取り、超えたら `truncated` で帯を出す）。
   値は表示用に `CELL_MAX_CHARS`（1,000 文字）で切る（巨大な TEXT / BLOB で表が重くならないように）
 - **BLOB はバイト列のまま**来る。MySQL は UTF-8 として読めないバイトが置換文字になり、PostgreSQL の `bytea`
   は `\x...` の 16 進で来る。表示を作り込まない

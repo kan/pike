@@ -154,6 +154,11 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: ['Esc'], label: t('shortcuts.largeFileClearSelection') },
     ],
   },
+  {
+    // DB ビューワの SQL の入力欄（#646）のキーは `DbTab.vue` の `onSqlKeydown` が受ける。
+    title: t('shortcuts.db'),
+    items: [{ keys: ['Mod+Enter'], label: t('shortcuts.dbExecute') }],
+  },
 ])
 </script>
 

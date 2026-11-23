@@ -16,6 +16,7 @@ import {
   parseSavedConnections,
   removeSaved,
   savedToTarget,
+  tableBadge,
   targetToSaved,
   upsertSaved,
 } from '../src/lib/dbViewer'
@@ -31,6 +32,15 @@ test('イメージ名から DB の種類を当てる', () => {
   // タグや digest の中の語では当てない。
   assert.equal(dbEngineOfImage('redis:mysql-compat'), null)
   assert.equal(dbEngineOfImage('nginx@sha256:postgres'), null)
+})
+
+test('テーブルの一覧は件数を出し、VIEW は件数の代わりに VIEW と出す', () => {
+  assert.equal(tableBadge({ name: 't', kind: 'BASE TABLE', approxRows: 1234 }), (1234).toLocaleString())
+  assert.equal(tableBadge({ name: 't', kind: 'BASE TABLE', approxRows: null }), null)
+  assert.equal(tableBadge({ name: 'v', kind: 'VIEW', approxRows: null }), 'VIEW')
+  assert.equal(tableBadge({ name: 'v', kind: 'SYSTEM VIEW', approxRows: 0 }), 'VIEW')
+  // PostgreSQL の `reltuples` はビューでも値を持ちうるが、件数としては出さない。
+  assert.equal(tableBadge({ name: 'v', kind: 'VIEW', approxRows: 0 }), 'VIEW')
 })
 
 test('結果を表にしても値と NULL がそのまま戻る', () => {

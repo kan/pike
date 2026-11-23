@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 簡易 DB ビューワ（#632）のタブ。つなげた接続先（`tab.target`）について、テーブルを選び、
- * 中身 / スキーマを切り替えて見る。
+ * レコード / スキーマを切り替えて見る。「SQL」では入力した SQL をそのまま実行する（#646）。
  *
  * **接続のフォームはここに持たない。** 接続先を選ぶのは DB パネル、入力するのは接続のダイアログ
  * （`components/DbConnectDialog.vue`）で、タブはつなげたことを確かめた接続先しか受け取らない
@@ -9,20 +9,21 @@
  *
  * **表は CSV プレビューの部品をそのまま使う**（`useCsvTable`）。ページ送り・表示件数・並べ替え・
  * 列と行の選択とコピーは新しいコードを持たない。接続とクエリは Rust（`src-tauri/src/db/`）で、
- * ここから渡せるのは接続先とテーブル名だけ（任意の SQL を受ける口は無い）。判断の記録は
- * `.claude/rules/db.md`。
+ * レコードとスキーマで渡すのは接続先とテーブル名だけ。入力した SQL は `dbExecute` だけが渡す。
+ * 判断の記録は `.claude/rules/db.md`。
  */
-import { Copy, RefreshCw, Save } from 'lucide-vue-next'
+import { Copy, Play, RefreshCw, Save } from 'lucide-vue-next'
 import { computed, nextTick, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { useCsvTable } from '../../composables/useCsvTable'
 import { useI18n } from '../../i18n'
-import { dbErrorText, dbResultToCsv, ENGINE_LABELS, formatDbResult } from '../../lib/dbViewer'
+import { dbErrorText, dbResultToCsv, ENGINE_LABELS, formatDbResult, tableBadge } from '../../lib/dbViewer'
 import { hostDefaultShell } from '../../lib/host'
-import { dbDump, dbProbe, dbRows, dbSchema, fsWriteFile, pickSaveFile } from '../../lib/tauri'
+import { chordLabel, matchChord } from '../../lib/keys'
+import { dbDump, dbExecute, dbProbe, dbRows, dbSchema, fsWriteFile, pickSaveFile } from '../../lib/tauri'
 import { useDbStore } from '../../stores/db'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
-import type { DbDumpFormat, DbResult, DbTable, DbTarget } from '../../types/db'
+import type { DbDumpFormat, DbExec, DbResult, DbTable, DbTarget } from '../../types/db'
 import type { DbTab } from '../../types/tab'
 
 const { t } = useI18n()
@@ -41,7 +42,7 @@ const currentDatabase = ref<string | null>(null)
 const tables = ref<DbTable[]>([])
 const tableFilter = ref('')
 const selectedTable = ref<string | null>(null)
-const view = ref<'rows' | 'schema'>('rows')
+const view = ref<'rows' | 'schema' | 'sql'>('rows')
 /** 結果は丸ごと差し替えるだけなので、行を深いリアクティブにしない（最大 2,000 行 × 列）。 */
 const result = shallowRef<DbResult | null>(null)
 const loading = ref(false)
@@ -86,9 +87,6 @@ async function loadTables(to: DbTarget) {
   }
 }
 
-// 開いたときと、接続先を差し替えたとき（「接続先を変える」・DB の切り替え）に読み直す。
-watch(target, (to) => to && void loadTables(to), { immediate: true })
-
 /**
  * DB を切り替える。パネルから開くのと同じく、つないで確かめてからこのタブの接続先を差し替える
  * （`db.open`）。つなげなければ接続のダイアログが出て、選択欄は今の DB のまま（一覧と中身は
@@ -104,15 +102,23 @@ async function switchDatabase(select: HTMLSelectElement) {
   if (!ok) select.value = currentDatabase.value ?? ''
 }
 
+/** 一覧に出す行。右の文字（件数か `VIEW`）もここで作る（SQL の入力のたびに描き直す行ごとに作り直さない）。 */
 const filteredTables = computed(() => {
   const q = tableFilter.value.trim().toLowerCase()
-  return q ? tables.value.filter((x) => x.name.toLowerCase().includes(q)) : tables.value
+  const list = q ? tables.value.filter((x) => x.name.toLowerCase().includes(q)) : tables.value
+  return list.map((x) => ({ ...x, badge: tableBadge(x) }))
 })
+
+/** テーブルを選ぶ。SQL の表示から選んだときはレコードの表示へ移る（一覧の行はテーブルを見る入口なので）。 */
+function selectTable(name: string) {
+  selectedTable.value = name
+  if (view.value === 'sql') view.value = 'rows'
+}
 
 async function loadResult() {
   const to = target.value
   const table = selectedTable.value
-  if (!to || !table) return
+  if (!to || !table || view.value === 'sql') return
   const my = ++seq
   loading.value = true
   error.value = null
@@ -129,10 +135,117 @@ async function loadResult() {
   }
 }
 
+// --- 入力した SQL（#646） ---
+
+const sqlText = ref('')
+const sqlInput = useTemplateRef<HTMLTextAreaElement>('sqlInput')
+/** 最後に実行した SQL の結果。テーブルの表示（`result`）とは別に持ち、表示を行き来しても残す。 */
+const sqlOutput = shallowRef<DbExec | null>(null)
+const sqlError = ref<string | null>(null)
+const executing = ref(false)
+let execSeq = 0
+
+/**
+ * 入力した SQL を実行する。**選んだ部分があれば、そこだけを実行する**（並べて書いた文の 1 つだけを
+ * 流せるように）。DDL や書き込みのあとはテーブルの一覧が変わりうるので、一覧だけを読み直す。
+ */
+async function execute() {
+  const to = target.value
+  const el = sqlInput.value
+  if (!to || !el || executing.value) return
+  const selected = el.value.slice(el.selectionStart, el.selectionEnd)
+  const sql = selected.trim() ? selected : el.value
+  if (!sql.trim()) return
+  const my = ++execSeq
+  executing.value = true
+  sqlError.value = null
+  try {
+    const out = await dbExecute(to, sql)
+    if (my !== execSeq) return
+    sqlOutput.value = out
+    csvTable.selection.clear()
+    csvTable.setSort(null)
+    // 一覧は Rust が同じ接続で読み直して添えてくる（表を返す文では一覧は変わらない）。
+    if (out.kind === 'log' && out.tables) setTables(out.tables)
+  } catch (e) {
+    if (my !== execSeq) return
+    sqlOutput.value = null
+    sqlError.value = dbErrorText(e, to)
+    // 複数の文は、失敗した文の前までが実行されている。エラーには一覧が添わないので読み直す。
+    void refreshTables(to)
+  } finally {
+    if (my === execSeq) executing.value = false
+  }
+}
+
+/** テーブルの一覧だけを読み直す（選んでいるテーブルと表示はそのまま）。取れなくても実行の結果は見せる。 */
+async function refreshTables(to: DbTarget) {
+  try {
+    const pre = await dbProbe(to)
+    if (target.value === to) setTables(pre.tables)
+  } catch {
+    // 一覧の失敗は、次に開き直したときか「接続先を変える」で出る。
+  }
+}
+
+/**
+ * 実行のあとのテーブルの一覧に差し替える。選んでいたテーブルが消えていたら（`DROP TABLE`）選択を外す
+ * （残すと、レコードの表示に戻ったときに無いテーブルを読みに行ってエラーになる）。
+ */
+function setTables(list: DbTable[]) {
+  tables.value = list
+  if (selectedTable.value && !list.some((x) => x.name === selectedTable.value)) {
+    selectedTable.value = null
+    result.value = null
+  }
+}
+
+function onSqlKeydown(e: KeyboardEvent) {
+  if (matchChord(e, 'Mod+Enter') && !e.isComposing) {
+    e.preventDefault()
+    void execute()
+  }
+}
+
+// 開いたときと、接続先を差し替えたとき（「接続先を変える」・DB の切り替え）に読み直す。
+// SQL の結果は前の接続先のものなので捨てる（入力した SQL は残す）。SQL の状態より後ろに置く
+// （`immediate` なので、宣言より前に置くと初期化前の変数に触る）。
+watch(
+  target,
+  (to) => {
+    execSeq++
+    executing.value = false
+    sqlOutput.value = null
+    sqlError.value = null
+    if (to) void loadTables(to)
+  },
+  { immediate: true },
+)
+
 // --- 表（CSV プレビューの部品） ---
 
+/** SQL の実行が返した表（ログのときは null）。 */
+const sqlResult = computed(() => {
+  const out = sqlOutput.value
+  return out?.kind === 'rows' ? out.result : null
+})
+/** 表に出す結果。SQL の表示では、表を返した実行の結果。 */
+const shownResult = computed<DbResult | null>(() => (view.value === 'sql' ? sqlResult.value : result.value))
+const shownError = computed(() => (view.value === 'sql' ? sqlError.value : error.value))
+const busy = computed(() => (view.value === 'sql' ? executing.value : loading.value))
+/** 表の上の帯。上限で切ったとき（スキーマは切らない）。 */
+const truncatedText = computed(() => {
+  const r = shownResult.value
+  if (!r?.truncated) return null
+  const limit = r.rows.length.toLocaleString()
+  return view.value === 'sql' ? t('db.queryTruncated', { limit }) : t('db.truncated', { limit })
+})
+
 const tableRef = ref<HTMLElement>()
-const csvData = computed(() => (result.value ? dbResultToCsv(result.value) : null))
+// 変換は結果ごとに覚える（表示を行き来するたびに最大 2,000 行を変換し直さない）。
+const rowsCsv = computed(() => (result.value ? dbResultToCsv(result.value) : null))
+const sqlCsv = computed(() => (sqlResult.value ? dbResultToCsv(sqlResult.value) : null))
+const csvData = computed(() => (view.value === 'sql' ? sqlCsv.value : rowsCsv.value))
 const csvTable = useCsvTable({ container: tableRef, data: () => csvData.value })
 const tableHtml = csvTable.html
 
@@ -159,27 +272,27 @@ function onTableKeydown(e: KeyboardEvent) {
 
 /** 表示中の結果（読み込んだ全行。ページで区切らない）を CSV / TSV でコピーする。 */
 function copyResult() {
-  const r = result.value
+  const r = shownResult.value
   if (!r) return
   copyText(formatDbResult(r, format.value), t('db.copied', { count: r.rows.length.toLocaleString() }))
 }
 
 /**
- * ファイルに保存する。**中身はテーブル全体を書き出す**（表示の上限で切らない。Rust がクライアントの
- * 出力を読みながら書くので、フロントを経由しない）。スキーマは表示している表をそのまま書く。
+ * ファイルに保存する。**レコードはテーブル全体を書き出す**（表示の上限で切らない。Rust がクライアントの
+ * 出力を読みながら書くので、フロントを経由しない）。スキーマと SQL の結果は表示している表をそのまま書く。
  */
 async function saveResult() {
   const to = target.value
   const table = selectedTable.value
-  const r = result.value
-  if (!to || !table || !r) return
-  const suffix = view.value === 'schema' ? '-schema' : ''
-  const path = await pickSaveFile(`${table}${suffix}.${format.value}`).catch(() => null)
+  const r = shownResult.value
+  if (!to || !r || (view.value !== 'sql' && !table)) return
+  const name = view.value === 'sql' ? 'query' : view.value === 'schema' ? `${table}-schema` : table
+  const path = await pickSaveFile(`${name}.${format.value}`).catch(() => null)
   if (!path) return
   saving.value = true
   try {
     let count = r.rows.length
-    if (view.value === 'rows') count = await dbDump(to, table, format.value, path)
+    if (view.value === 'rows' && table) count = await dbDump(to, table, format.value, path)
     else await fsWriteFile(hostDefaultShell(), path, `${formatDbResult(r, format.value)}\n`)
     statusMessageStore.show({
       text: t('db.saved', { count: count.toLocaleString(), path }),
@@ -238,10 +351,10 @@ function changeConnection() {
             class="db-table-item"
             :class="{ selected: x.name === selectedTable }"
             :title="x.kind"
-            @click="selectedTable = x.name"
+            @click="selectTable(x.name)"
           >
             <span class="db-table-name">{{ x.name }}</span>
-            <span v-if="x.approxRows !== null" class="db-table-rows">{{ x.approxRows.toLocaleString() }}</span>
+            <span v-if="x.badge !== null" class="db-table-rows">{{ x.badge }}</span>
           </button>
           <div v-if="!tables.length && !loading" class="db-hint">
             {{ target?.database ? t('db.noTables') : t('db.pickDatabase') }}
@@ -256,9 +369,16 @@ function changeConnection() {
             <button type="button" :class="{ active: view === 'schema' }" @click="view = 'schema'">
               {{ t('db.schema') }}
             </button>
+            <button type="button" :class="{ active: view === 'sql' }" @click="view = 'sql'">{{ t('db.sql') }}</button>
           </div>
-          <span class="db-current">{{ selectedTable ?? '' }}</span>
-          <button type="button" :title="t('common.refresh')" :disabled="!selectedTable || loading" @click="loadResult">
+          <span class="db-current">{{ view === 'sql' ? '' : (selectedTable ?? '') }}</span>
+          <button
+            v-if="view !== 'sql'"
+            type="button"
+            :title="t('common.refresh')"
+            :disabled="!selectedTable || loading"
+            @click="loadResult"
+          >
             <RefreshCw :size="13" :stroke-width="2" />
           </button>
           <select v-model="format" :title="t('db.format')">
@@ -266,29 +386,55 @@ function changeConnection() {
             <option value="tsv">TSV</option>
           </select>
           <!-- 読み込み中は前の表の結果が残っているので、保存と同じく押させない。 -->
-          <button type="button" :title="t('db.copyHint')" :disabled="!result || loading" @click="copyResult">
+          <button type="button" :title="t('db.copyHint')" :disabled="!shownResult || busy" @click="copyResult">
             <Copy :size="13" :stroke-width="2" /><span>{{ t('db.copy') }}</span>
           </button>
           <button
             type="button"
-            :title="view === 'rows' ? t('db.saveRowsHint') : t('db.saveSchemaHint')"
-            :disabled="!result || loading || saving"
+            :title="
+              view === 'rows' ? t('db.saveRowsHint') : view === 'schema' ? t('db.saveSchemaHint') : t('db.saveQueryHint')
+            "
+            :disabled="!shownResult || busy || saving"
             @click="saveResult"
           >
             <Save :size="13" :stroke-width="2" /><span>{{ saving ? t('db.saving') : t('db.save') }}</span>
           </button>
         </div>
-        <div v-if="result?.truncated && view === 'rows'" class="db-banner">
-          {{ t('db.truncated', { limit: result.rows.length.toLocaleString() }) }}
+        <div v-if="view === 'sql'" class="db-sql">
+            <textarea
+              ref="sqlInput"
+              v-model="sqlText"
+              class="db-sql-input"
+              spellcheck="false"
+              :placeholder="t('db.sqlPlaceholder')"
+              @keydown="onSqlKeydown"
+            ></textarea>
+            <div class="db-sql-actions">
+              <button type="button" :disabled="!sqlText.trim() || executing" @click="execute">
+                <Play :size="13" :stroke-width="2" /><span>{{ executing ? t('db.executing') : t('db.execute') }}</span>
+              </button>
+              <span class="db-hint">{{ t('db.sqlHint', { key: chordLabel('Mod+Enter') }) }}</span>
+            </div>
         </div>
-        <div v-if="error" class="db-error selectable">{{ error }}</div>
+        <div v-if="truncatedText" class="db-banner">{{ truncatedText }}</div>
+        <div v-if="view === 'sql' && sqlOutput?.kind === 'log' && sqlOutput.truncated" class="db-banner">
+          {{ t('db.logTruncated') }}
+        </div>
+        <div v-if="shownError" class="db-error selectable">{{ shownError }}</div>
+        <template v-else-if="view === 'sql'">
+          <template v-if="sqlOutput?.kind === 'log'">
+            <pre v-if="sqlOutput.text" class="db-log selectable" :class="{ dim: executing }">{{ sqlOutput.text }}</pre>
+            <div v-else class="db-hint db-pad">{{ t('db.executed') }}</div>
+          </template>
+          <div v-else-if="sqlResult && !sqlResult.columns.length" class="db-hint db-pad">{{ t('db.noRows') }}</div>
+        </template>
         <div v-else-if="loading && !result" class="db-hint db-pad">{{ t('common.loading') }}</div>
         <div v-else-if="!selectedTable" class="db-hint db-pad">{{ t('db.pickTable') }}</div>
         <div
-          v-if="result && !error"
+          v-if="shownResult && shownResult.columns.length && !shownError"
           ref="tableRef"
           class="db-table csv-preview selectable"
-          :class="{ dim: loading }"
+          :class="{ dim: busy }"
           tabindex="-1"
           @click="csvTable.handleClick"
           @change="csvTable.handleChange"
@@ -464,9 +610,47 @@ function changeConnection() {
   border-radius: 3px 0 0 3px;
 }
 
+.db-views button + button {
+  border-left: none;
+}
+
 .db-views button:last-child {
   border-radius: 0 3px 3px 0;
-  border-left: none;
+}
+
+.db-sql {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 高さは利用者が引き伸ばせる（長い SQL を書くとき）。結果の表が残りを使う。 */
+.db-tab .db-sql-input {
+  height: 8em;
+  min-height: 3em;
+  max-height: 60vh;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.db-sql-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.db-log {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  white-space: pre;
 }
 
 .db-tab .db-views button.active {
@@ -500,7 +684,8 @@ function changeConnection() {
   outline: none;
 }
 
-.db-table.dim {
+.db-table.dim,
+.db-log.dim {
   opacity: 0.6;
 }
 </style>
