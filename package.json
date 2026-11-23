@@ -85,7 +85,7 @@
     "@biomejs/biome": "^2.6.6",
     "@tauri-apps/cli": "^2.12.4",
     "@types/mocha": "^10.0.10",
-    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitejs/plugin-vue": "^6.0.11",
     "@wdio/cli": "^9.33.1",
     "@wdio/local-runner": "^9.33.1",
     "@wdio/mocha-framework": "^9.33.1",
