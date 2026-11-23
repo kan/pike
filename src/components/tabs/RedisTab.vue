@@ -111,7 +111,8 @@ function reloadKeys() {
   if (!to) return
   return fetchKeys(
     to,
-    () => redisKeys(to, pattern.value.trim()),
+    // 前後の空白もキーの一部なので削らない（空なら全部は Rust が決める）。
+    () => redisKeys(to, pattern.value),
     (list) => {
       if (selectedId.value && !list.keys.some((k) => keyId(k) === selectedId.value)) {
         selectedKey.value = null
@@ -220,11 +221,19 @@ async function saveValue() {
   }
 }
 
-/** キーの残りの時間の表示（期限が無ければ「期限なし」）。 */
+/** キーの残りの時間の表示（期限が無ければ「期限なし」、`TTL` が読めなければ「期限は不明」）。 */
 const ttlText = computed(() => {
-  const ttl = value.value?.ttl ?? -1
+  const ttl = value.value?.ttl
+  if (ttl === null || ttl === undefined) return t('redis.ttlUnknown')
   return ttl < 0 ? t('redis.noExpiry') : t('redis.ttl', { seconds: ttl.toLocaleString() })
 })
+
+/** DB の選択肢の文言（キーの数が分からなければ番号だけ）。 */
+function databaseLabel(d: RedisDatabase): string {
+  return d.keys === null
+    ? t('redis.databaseOptionUnknown', { index: d.index })
+    : t('redis.databaseOption', { index: d.index, count: d.keys.toLocaleString() })
+}
 
 const lengthText = computed(() => {
   const v = value.value
@@ -271,7 +280,7 @@ function changeConnection() {
           @change="switchDatabase($event.target as HTMLSelectElement)"
         >
           <option v-for="d in databases" :key="d.index" :value="String(d.index)">
-            {{ t('redis.databaseOption', { index: d.index, count: d.keys.toLocaleString() }) }}
+            {{ databaseLabel(d) }}
           </option>
         </select>
         <input

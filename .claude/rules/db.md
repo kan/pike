@@ -218,7 +218,9 @@ DDL も書き込みも受け、確認は挟まない（issue の方針。権限�
     届く（どちらも実測）。`INFO keyspace` は別に呼んで行として読み、見出しと `dbN:` 以外の行をエラーにする（`keyspace_reply`）
   - 接続を確かめる `PING` は送らない。`redis_probe` は先にキーの一覧（`SCAN`）を読み、そこで接続と認証の失敗を返す
   - **DB の一覧（`INFO keyspace`）が読めなくても止めない。** `INFO` は ACL の `@dangerous` に入るので、`-@dangerous` の
-    ユーザーは `NOPERM` になる（実測）が、キーは読める。そのときは今の DB だけを選択欄に出す
+    ユーザーは `NOPERM` になる（実測）が、キーは読める。そのときは今の DB だけを、件数を出さずに選択欄に出す
+    （`RedisDatabase::keys` が None。0 件と書くと空の DB と区別できない）。`TTL` が拒否されたときも「期限なし」にせず
+    「期限は不明」と出す（`RedisValue::ttl` が None）
   - 1 行が 1 つの JSON なので、切った行は読めない。1 行も全体も `OUTPUT_MAX_BYTES`（64 MiB）までにして、超えたら
     溢れのエラーにする（`RecordReader::lines(LINE_CAP)`）。要素の数は問い合わせで絞る（下）が、list の要素の 1 つが
     大きければ 1 行は大きくなる

@@ -71,7 +71,8 @@ export type DbExec =
 /** Redis の DB（番号とキーの数。Rust の `db::redis::RedisDatabase`）。 */
 export interface RedisDatabase {
   index: number
-  keys: number
+  /** キーの数。`INFO` が読めなかった（ACL で拒否された）ときは null。 */
+  keys: number | null
 }
 
 /** Redis のキー。`kind` は `TYPE` の答え（`string` / `list` / `hash` / `set` / `zset` / `stream` など）。 */
@@ -99,8 +100,8 @@ export interface RedisProbe {
 /** 1 つのキーの値（Rust の `db::redis::RedisValue`）。string は `text`、ほかの型は `result`（表）。 */
 export interface RedisValue {
   kind: string
-  /** 残りの秒。期限が無ければ -1。 */
-  ttl: number
+  /** 残りの秒。期限が無ければ -1。`TTL` が読めなかった（ACL で拒否された）ときは null。 */
+  ttl: number | null
   /** 要素の数（string はバイト数）。 */
   length: number | null
   text: string | null

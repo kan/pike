@@ -528,7 +528,10 @@ fn parse_keyspace(lines: &[String]) -> Vec<RedisDatabase> {
                 .find_map(|kv| kv.strip_prefix("keys="))?
                 .parse()
                 .ok()?;
-            Some(RedisDatabase { index, keys })
+            Some(RedisDatabase {
+                index,
+                keys: Some(keys),
+            })
         })
         .collect()
 }
@@ -560,7 +563,8 @@ fn pairs(flat: &[Value]) -> impl Iterator<Item = [Cell; 2]> + '_ {
 #[serde(rename_all = "camelCase")]
 pub struct RedisDatabase {
     index: u32,
-    keys: u64,
+    /// キーの数。`INFO` が読めなかったときは分からない（None）。
+    keys: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -614,8 +618,9 @@ pub struct RedisProbe {
 #[serde(rename_all = "camelCase")]
 pub struct RedisValue {
     kind: String,
-    /// 残りの秒（`TTL`）。期限が無ければ -1。
-    ttl: i64,
+    /// 残りの秒（`TTL`）。期限が無ければ -1。`TTL` が読めなかった（ACL で拒否された）ときは None
+    /// （期限なしと区別する）。
+    ttl: Option<i64>,
     /// 要素の数（string はバイト数）。
     length: Option<u64>,
     text: Option<String>,
@@ -638,12 +643,16 @@ pub async fn redis_probe(
     // キーの一覧を先に読む（接続と認証の失敗はここで返る）。
     let keys = session.keys("*").await?;
     // **DB の一覧が読めなくても止めない。** `INFO` は ACL の `@dangerous` に入るので、`-@dangerous` の
-    // ユーザーは `NOPERM` になる（実測）が、キーは読める。そのときは今の DB だけを出す。
-    let mut databases = session.keyspace().await.unwrap_or_default();
+    // ユーザーは `NOPERM` になる（実測）が、キーは読める。そのときは今の DB だけを、件数を分からないまま出す
+    // （0 件と書くと、空の DB と区別できない）。読めて今の DB が無ければ、その DB は空（`INFO` は空の DB を出さない）。
+    let (mut databases, known) = match session.keyspace().await {
+        Ok(dbs) => (dbs, true),
+        Err(_) => (Vec::new(), false),
+    };
     if !databases.iter().any(|d| d.index == current) {
         databases.push(RedisDatabase {
             index: current,
-            keys: 0,
+            keys: known.then_some(0),
         });
         databases.sort_by_key(|d| d.index);
     }
@@ -684,7 +693,7 @@ pub async fn redis_value(
         .as_str()
         .unwrap_or_default()
         .to_owned();
-    let ttl = head[1].as_ref().ok().and_then(Value::as_i64).unwrap_or(-1);
+    let ttl = head[1].as_ref().ok().and_then(Value::as_i64);
     let limit = ROW_LIMIT.to_string();
     let last = (ROW_LIMIT - 1).to_string();
     let string_last = (STRING_MAX_BYTES - 1).to_string();
@@ -713,7 +722,7 @@ pub async fn redis_value(
 }
 
 /// 型ごとの応答を、見せる形（string の文字、ほかの表）にする。
-fn shape_value(kind: String, ttl: i64, length: Option<u64>, body: &Value) -> RedisValue {
+fn shape_value(kind: String, ttl: Option<i64>, length: Option<u64>, body: &Value) -> RedisValue {
     // 見せた数が要素の数に届かなければ、先頭だけを見せている。
     let cut = |n: usize| length.is_some_and(|len| (n as u64) < len);
     let base = RedisValue {
@@ -920,7 +929,7 @@ mod tests {
         ];
         let dbs = keyspace_reply(&lines).unwrap();
         assert_eq!(dbs.len(), 2);
-        assert_eq!((dbs[1].index, dbs[1].keys), (1, 11));
+        assert_eq!((dbs[1].index, dbs[1].keys), (1, Some(11)));
         // 認証の失敗は印の無い生の行で届く（redis 7.4 で実測）。
         let denied = ["NOAUTH Authentication required.".to_owned()];
         assert_eq!(
@@ -931,6 +940,10 @@ mod tests {
 
     #[test]
     fn values_are_shaped_by_type() {
+        // ここでは `TTL` が読めた値だけを見る（読めないときの None はそのまま渡るだけ）。
+        fn shape_value(kind: String, ttl: i64, length: Option<u64>, body: &Value) -> RedisValue {
+            super::shape_value(kind, Some(ttl), length, body)
+        }
         let v = |j: &str| serde_json::from_str::<Value>(j).unwrap();
         let hash = shape_value(
             "hash".to_owned(),
