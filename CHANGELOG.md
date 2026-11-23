@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 
 - **DB ビューワの表示の切り替えの「中身」を「レコード」にし、テーブルの一覧でビューには件数の代わりに `VIEW` と出すようにした** (#646)
 - **URL を扱う url クレートを 2.5.9 に上げた**：入れ子の `blob:` の URL でスタックオーバーフローする脆弱性（RUSTSEC-2026-0592）を直した版です (#646)
+- **同梱の ripgrep（rg）を 16.0.0 に上げた** (#651)
 
 ## [0.74.0] - 2026-11-21
 

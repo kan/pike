@@ -7,7 +7,7 @@
 # 既定は rustc のホストトリプル。クロスビルドでは TARGET を明示する。
 set -euo pipefail
 
-VERSION="15.2.0"
+VERSION="16.0.0"
 TARGET="${TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
 OUT_DIR="src-tauri/binaries"
 
