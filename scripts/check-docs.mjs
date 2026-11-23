@@ -126,6 +126,7 @@ const EXTERNAL_NAMES = [
   'task_complete', // 同上（ターンの終わり）
   'turn_aborted', // 同上（中断したターン）
   'mysql_async', // 入れなかった DB ドライバのクレート（採らなかった選択肢として db.md が出す、#632）
+  'ANSI_QUOTES', // MySQL の sql_mode（クライアントのコマンドを字句で追い切れない理由として db.md が出す、#646）
   'expiresAt', // Claude Code の .credentials.json のキー（Pike は読まない。#381 の調査の記録）
   'refreshTokenExpiresAt', // 同上
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）

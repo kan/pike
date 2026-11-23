@@ -2,7 +2,7 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type { AgentSession } from '../types/agentSession'
 import type { AgentUsage } from '../types/agentUsage'
 import type { CiAction, CiConfigs, CiJob, CiListResult, CiProvider } from '../types/ci'
-import type { DbContainerDefaults, DbDumpFormat, DbEngine, DbProbe, DbResult, DbTarget } from '../types/db'
+import type { DbContainerDefaults, DbDumpFormat, DbEngine, DbExec, DbProbe, DbResult, DbTarget } from '../types/db'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
@@ -1405,7 +1405,8 @@ export async function dockerContainerPorts(containerId: string): Promise<number[
   return invoke<number[]>('docker_container_ports', { containerId })
 }
 
-// DB ビューワ（#632）。SQL は Rust が組む固定のものだけで、渡せるのはテーブル名だけ。
+// DB ビューワ（#632）。一覧・スキーマ・レコードの SQL は Rust が組む固定のもので、渡せるのは
+// テーブル名だけ。入力した SQL は `dbExecute`（#646）だけが渡す。
 
 export async function dbContainerDefaults(containerId: string, engine: DbEngine): Promise<DbContainerDefaults> {
   return invoke<DbContainerDefaults>('db_container_defaults', { containerId, engine })
@@ -1431,6 +1432,14 @@ export async function dbRows(target: DbTarget, table: string): Promise<DbResult>
 /** テーブル全体を `path`（ホストのパス）へ書き出し、書いた行数を返す。 */
 export async function dbDump(target: DbTarget, table: string, format: DbDumpFormat, path: string): Promise<number> {
   return invoke<number>('db_dump', { target, table, format, path })
+}
+
+/**
+ * 入力した SQL をそのまま実行する（#646。DDL と書き込みも受ける）。表を返す 1 つの文は表で、
+ * それ以外はクライアントのログで返る。
+ */
+export async function dbExecute(target: DbTarget, sql: string): Promise<DbExec> {
+  return invoke<DbExec>('db_execute', { target, sql })
 }
 
 // Window

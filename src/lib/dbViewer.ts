@@ -6,7 +6,7 @@
  */
 
 import { t } from '../i18n'
-import type { DbDumpFormat, DbEngine, DbProbe, DbResult, DbTarget, DbVia } from '../types/db'
+import type { DbDumpFormat, DbEngine, DbProbe, DbResult, DbTable, DbTarget, DbVia } from '../types/db'
 import { type ShellType, shellFromId, shellId, shellProfileLabel } from '../types/tab'
 import type { CsvData } from './csvPreview'
 
@@ -34,6 +34,16 @@ export function dbResultToCsv(result: DbResult): CsvData {
     rows: result.rows.map((cells, i) => ({ num: i + 1, cells })),
     delimiter: '\t',
   }
+}
+
+/**
+ * テーブルの一覧の右に出す文字（#646）。VIEW は件数の代わりに `VIEW` と出す（件数の推定を持たない
+ * ので空になり、テーブルと見分けがつかないため）。`kind` は information_schema の `table_type` で、
+ * MySQL のシステムのビューは `SYSTEM VIEW` になる。
+ */
+export function tableBadge(table: DbTable): string | null {
+  if (/\bVIEW$/i.test(table.kind)) return 'VIEW'
+  return table.approxRows === null ? null : table.approxRows.toLocaleString()
 }
 
 /** 接続の画面の入力。空の欄は「指定なし」。 */
@@ -370,10 +380,50 @@ export function probeAskText(reason: Extract<DbProbeVerdict, { kind: 'ask' }>['r
   )
 }
 
-/** エラーの文言。クライアントが無いときは、どこに何が無いかを言う。 */
+/** 入力した SQL にクライアントのコマンドがあったときのエラーの接頭辞（`db::CLIENT_COMMAND`）。 */
+const CLIENT_COMMAND = 'db-client-command:'
+
+/** SQL が長すぎて渡せないときのエラーの接頭辞（`db::SQL_TOO_LONG`。後ろに上限のバイト数）。 */
+const SQL_TOO_LONG = 'db-sql-too-long:'
+
+/** コンテナに `sh` が無く、入力した SQL を渡せなかったときのエラー（`db::CONTAINER_SH_NOT_FOUND`）。 */
+const CONTAINER_SH_NOT_FOUND = 'db-container-sh-not-found'
+
+/** psql が古く `\restrict` が無いので、入力した SQL を実行しなかったときのエラー（`db::PSQL_NO_RESTRICT`）。 */
+const PSQL_NO_RESTRICT = 'db-psql-no-restrict'
+
+/** 入力した SQL が空白・コメント・`;` だけだったときのエラー（`db::SQL_EMPTY`）。 */
+const SQL_EMPTY = 'db-sql-empty'
+
+/**
+ * 入力した SQL を、1 文も実行しないまま終えたか（クライアントのコマンド・長すぎる SQL・空の SQL・
+ * 古い psql・コンテナに `sh` が無い）。それならテーブルの一覧は変わっていないので、読み直さなくてよい。
+ */
+export function rejectedBeforeRun(error: unknown): boolean {
+  const s = String(error)
+  return (
+    s.startsWith(CLIENT_COMMAND) ||
+    s.startsWith(SQL_TOO_LONG) ||
+    [SQL_EMPTY, PSQL_NO_RESTRICT, CONTAINER_SH_NOT_FOUND].includes(s)
+  )
+}
+
+/**
+ * エラーの文言。クライアントが無いときは、どこに何が無いかを言う。入力した SQL を断ったとき
+ * （クライアントのコマンド、長すぎる SQL）は、その理由を言う。
+ */
 export function dbErrorText(error: unknown, target: DbTarget): string {
+  const s = String(error)
+  if (s.startsWith(CLIENT_COMMAND)) return t('db.clientCommand', { command: s.slice(CLIENT_COMMAND.length) })
+  if (s.startsWith(SQL_TOO_LONG)) {
+    const kib = Math.floor(Number(s.slice(SQL_TOO_LONG.length)) / 1024)
+    return t('db.sqlTooLong', { limit: kib.toLocaleString() })
+  }
+  if (s === CONTAINER_SH_NOT_FOUND) return t('db.containerShNotFound')
+  if (s === PSQL_NO_RESTRICT) return t('db.psqlNoRestrict')
+  if (s === SQL_EMPTY) return t('db.sqlEmpty')
   const missing = missingClients(error)
-  if (!missing) return String(error)
+  if (!missing) return s
   const via = target.via
   const where =
     via.kind === 'container' ? t('db.whereContainer') : t('db.whereShell', { shell: shellProfileLabel(via.shell) })

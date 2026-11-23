@@ -10,15 +10,16 @@
 //! - **シェル**: プロジェクトのシェルの環境（ホスト・WSL）でクライアントを起こす。WSL は
 //!   `wsl.exe -d <distro>` 経由なので、WSL の中の DB に Windows から TCP で届くかを考えなくてよい
 //!
-//! パスワードは引数に載せず、`MYSQL_PWD` / `PGPASSWORD` で渡す。発行する SQL は `sql.rs` に
-//! ある固定のものだけで、外から入るテーブル名は一覧に有ることを確かめてから引用して埋める。
+//! パスワードは引数に載せず、`MYSQL_PWD` / `PGPASSWORD` で渡す。一覧・スキーマ・レコードで
+//! 発行する SQL は `sql.rs` にある固定のもので、外から入るテーブル名は一覧に有ることを確かめてから
+//! 引用して埋める。利用者が入力した SQL は `db_execute`（#646）だけが受ける。
 //! 判断の記録は `.claude/rules/db.md`。
 
 pub mod sql;
 
 use crate::docker::{DockerState, get_docker};
 use crate::types::{
-    DEFAULT_TIMEOUT, STDERR_KEEP_MAX, ShellConfig, WSL_EXTRA_PATH, drain_stderr, truncate_chars,
+    DEFAULT_TIMEOUT, STDERR_KEEP_MAX, ShellConfig, WSL_EXTRA_PATH, truncate_chars,
     wait_with_timeout,
 };
 use bollard::Docker;
@@ -27,7 +28,9 @@ use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::query_parameters::InspectContainerOptions;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use sql::{Cell, ConnArgs, DumpFormat, Engine, RecordReader};
+use sql::{
+    Cell, ConnArgs, DumpFormat, Engine, LOG_MAX_BYTES, OutputMode, RecordReader, SqlInput, UserSql,
+};
 use std::io::{Read, Write};
 use std::process::Stdio;
 use std::time::Duration;
@@ -43,9 +46,53 @@ const CELL_MAX_CHARS: usize = 1000;
 /// 書き出しに待てる時間。表示（`DEFAULT_TIMEOUT` の 30 秒）では大きなテーブルが切れるので別に持つ。
 const DUMP_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// 入力された SQL（#646）に待てる時間。大きなテーブルの `ALTER` や重い集計は 30 秒を超えうるので、
+/// 書き出しと同じだけ待つ。
+const EXEC_TIMEOUT: Duration = DUMP_TIMEOUT;
+
 /// クライアントが見つからないときのエラーの接頭辞。フロント（`lib/dbViewer.ts`）がこれを見て
 /// 「`mysql` が見つからない」と出す。
 const CLIENT_NOT_FOUND: &str = "db-client-not-found:";
+
+/// コンテナの経路で、標準入力へ流す SQL を渡す環境変数の接頭辞（`run_container`。`PIKE_SQL_0` ...）。
+const STDIN_ENV: &str = "PIKE_SQL";
+
+/// 環境変数 1 つに入れる SQL の大きさ（バイト）。Linux の上限（1 つ 128 KiB）の半分。
+const STDIN_CHUNK: usize = 64 * 1024;
+
+/// コンテナの経路で渡せる SQL の大きさ（バイト）。execve の引数と環境変数の合計（2 MiB ほど）に収める。
+const CONTAINER_SQL_MAX: usize = 1024 * 1024;
+
+/// SQL が長すぎるときのエラーの接頭辞（後ろに上限のバイト数）。フロント（`lib/dbViewer.ts`）が文言にする。
+const SQL_TOO_LONG: &str = "db-sql-too-long:";
+
+/// 入力した SQL にクライアントのコマンドがあったときのエラーの接頭辞（後ろにコマンド）。
+const CLIENT_COMMAND: &str = "db-client-command:";
+
+/// 入力した SQL が空白・コメント・`;` だけだったときのエラー（フロントが文言にする）。
+const SQL_EMPTY: &str = "db-sql-empty";
+
+/// psql が古く、`\restrict` が無いので入力した SQL を実行しなかったときのエラー（`sql::restricted_script`）。
+const PSQL_NO_RESTRICT: &str = "db-psql-no-restrict";
+
+/// コンテナに `sh` が無く、入力した SQL を流し込めなかったときのエラー（`run_container`）。
+const CONTAINER_SH_NOT_FOUND: &str = "db-container-sh-not-found";
+
+/// `s` を `max` バイト以下の塊に分ける（文字の途中では切らない）。
+fn split_at_char_boundaries(s: &str, max: usize) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = s;
+    while !rest.is_empty() {
+        let mut end = rest.len().min(max);
+        while !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        let (head, tail) = rest.split_at(end);
+        out.push(head);
+        rest = tail;
+    }
+    out
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -156,8 +203,12 @@ trait Sink: Send + 'static {
 }
 
 /// 表示用に集める。1 行目が見出し。値は `CELL_MAX_CHARS` で切る。
+///
+/// `limit` は表示する行数で、**持つのは 1 行多くまで**（超えたかで切ったことを知る）。テーブルの
+/// レコードは SQL の `LIMIT` で絞るが、入力された SQL（#646）は絞れないので、ここで持たずに読み捨てる。
 #[derive(Default)]
 struct Collect {
+    limit: Option<usize>,
     columns: Option<Vec<String>>,
     rows: Vec<Vec<Cell>>,
 }
@@ -166,7 +217,7 @@ impl Sink for Collect {
     fn record(&mut self, cells: Vec<Cell>) -> std::io::Result<()> {
         if self.columns.is_none() {
             self.columns = Some(cells.into_iter().map(Option::unwrap_or_default).collect());
-        } else {
+        } else if self.limit.is_none_or(|n| self.rows.len() <= n) {
             let clipped = cells.into_iter().map(|c| {
                 c.map(|v| {
                     if v.len() > CELL_MAX_CHARS {
@@ -183,11 +234,17 @@ impl Sink for Collect {
 }
 
 impl Collect {
-    /// `limit` は表示する行数。SQL では 1 行多く取り、超えたかで切ったことを知る。
-    fn into_result(self, limit: Option<usize>) -> DbResult {
+    fn new(limit: Option<usize>) -> Self {
+        Collect {
+            limit,
+            ..Default::default()
+        }
+    }
+
+    fn into_result(self) -> DbResult {
         let mut rows = self.rows;
-        let truncated = limit.is_some_and(|n| rows.len() > n);
-        if let Some(n) = limit {
+        let truncated = self.limit.is_some_and(|n| rows.len() > n);
+        if let Some(n) = self.limit {
             rows.truncate(n);
         }
         DbResult {
@@ -215,11 +272,111 @@ impl Sink for FileSink {
     }
 }
 
-/// 1 回の実行の結果。どちらも sink を持ち帰る（次の候補を試すときに使い回す）。
+/// ログ（`OutputMode::Log`）を集める。1 行が 1 つの値のレコードで届く（`RecordReader`）。
+#[derive(Default)]
+struct LogSink {
+    text: String,
+    truncated: bool,
+}
+
+impl Sink for LogSink {
+    fn record(&mut self, cells: Vec<Cell>) -> std::io::Result<()> {
+        if self.truncated {
+            return Ok(());
+        }
+        let line = cells.into_iter().next().flatten().unwrap_or_default();
+        // 改行も含めて比べる（空の行でも 1 バイト足すので、上限に達したら打ち切る）。
+        let room = LOG_MAX_BYTES.saturating_sub(self.text.len());
+        if line.len() < room {
+            self.text.push_str(&line);
+            self.text.push('\n');
+        } else {
+            // 入り切らない行は、入るぶんだけ（文字の途中で切らずに）残す。捨てると、最初の行が長いだけで
+            // ログが空になり「出力はありません」と見える。
+            let mut end = room.saturating_sub(1).min(line.len());
+            while !line.is_char_boundary(end) {
+                end -= 1;
+            }
+            self.text.push_str(&line[..end]);
+            self.truncated = true;
+        }
+        Ok(())
+    }
+}
+
+impl LogSink {
+    /// 末尾の空行と、`mysql -vv` が最後に出す `Bye` の行を落とす（実測）。落とすのは MySQL で、
+    /// 最後の行がちょうど `Bye` のときだけ（PostgreSQL の表の値が `Bye` で終わっても削らない）。
+    fn into_text(self, engine: Engine) -> (String, bool) {
+        let text = self.text.trim_end();
+        let text = match (engine, text.rsplit_once('\n')) {
+            (Engine::Mysql, Some((rest, "Bye"))) => rest.trim_end(),
+            (Engine::Mysql, None) if text == "Bye" => "",
+            _ => text,
+        };
+        (text.to_owned(), self.truncated)
+    }
+}
+
+/// stderr の先頭と末尾を残す（`STDERR_HEAD` と `STDERR_KEEP_MAX` の残り）。**末尾を捨てないこと**:
+/// 入力した SQL は成功時の NOTICE / WARNING も stderr から拾うので、先頭だけを残すと、NOTICE が上限を
+/// 埋めたあとに出る肝心の ERROR（`psql:<stdin>:N:` と、どの文で止まったか）が消える。間を落としたら
+/// その印を挟む。
+#[derive(Default)]
+struct StderrKeep {
+    head: String,
+    tail: String,
+    omitted: bool,
+}
+
+/// stderr の先頭に残す量。残りの `STDERR_KEEP_MAX` までを末尾に使う。
+const STDERR_HEAD: usize = 8 * 1024;
+
+impl StderrKeep {
+    fn push(&mut self, text: &str) {
+        if self.tail.is_empty() && self.head.len() + text.len() <= STDERR_HEAD {
+            self.head.push_str(text);
+            return;
+        }
+        self.tail.push_str(text);
+        let max = STDERR_KEEP_MAX - STDERR_HEAD;
+        if self.tail.len() > max {
+            let mut cut = self.tail.len() - max;
+            while !self.tail.is_char_boundary(cut) {
+                cut += 1;
+            }
+            self.tail.drain(..cut);
+            self.omitted = true;
+        }
+    }
+
+    fn into_string(self) -> String {
+        match self.omitted {
+            true => format!("{}\n…\n{}", self.head.trim_end(), self.tail),
+            false => self.head + &self.tail,
+        }
+    }
+}
+
+/// 子プロセスの stderr を最後まで吸い、先頭と末尾を残す（`StderrKeep`）。
+fn drain_stderr_keep(source: impl Read) -> String {
+    let mut keep = StderrKeep::default();
+    crate::types::for_each_line(source, |line| {
+        keep.push(line);
+        keep.push("\n");
+        true
+    });
+    keep.into_string()
+}
+
+/// 1 回の実行の結果。どれも sink を持ち帰る（次の候補を試すときと、失敗までのログを見せるときに使う）。
 enum Outcome<S> {
-    Done(S),
+    /// 成功。stderr も持ち帰る（psql の NOTICE / WARNING は成功しても stderr に出る）。
+    Done(S, String),
     /// そのクライアントが無い（次の候補を試す）。
     Missing(S),
+    /// クライアントがエラーで終わった（stderr か終了コード）。
+    Failed(S, String),
 }
 
 /// 126 / 127 は「実行できない / 見つからない」（コンテナの exec と、WSL で挟む `sh` が返す。
@@ -243,13 +400,14 @@ fn conclude<S>(
     }
     if code != 0 {
         let msg = stderr.trim();
-        return Err(if msg.is_empty() {
+        let msg = if msg.is_empty() {
             format!("exit code {code}")
         } else {
             msg.to_owned()
-        });
+        };
+        return Ok(Outcome::Failed(sink, msg));
     }
-    Ok(Outcome::Done(sink))
+    Ok(Outcome::Done(sink, stderr.trim().to_owned()))
 }
 
 /// 出力を読んで sink へ渡す。sink の失敗（書き込めない）は覚えておき、出力は最後まで読む
@@ -261,9 +419,9 @@ struct Feeder<S> {
 }
 
 impl<S: Sink> Feeder<S> {
-    fn new(engine: Engine, sink: S) -> Self {
+    fn new(reader: RecordReader, sink: S) -> Self {
         Feeder {
-            reader: RecordReader::new(engine),
+            reader,
             sink,
             err: None,
         }
@@ -348,20 +506,48 @@ impl Session {
         })
     }
 
-    /// `sql` を実行し、出力を `sink` へ流す。クライアントが決まっていなければ候補を順に試す。
-    async fn run<S: Sink>(
+    /// `sql` を実行し、出力を `sink` へ流す。クライアントのエラーは `Err` にする。
+    async fn run<S: Sink>(&mut self, sql: &str, timeout: Duration, sink: S) -> Result<S, String> {
+        match self
+            .run_mode(sql, false, OutputMode::Records, timeout, sink)
+            .await?
+        {
+            (s, Ok(_)) => Ok(s),
+            (_, Err(e)) => Err(sql::tidy_error(&e)),
+        }
+    }
+
+    /// `sql` を `mode` の形で実行し、出力を `sink` へ流す。クライアントが決まっていなければ候補を
+    /// 順に試す。**クライアントの結果は sink と一緒に返す**: 成功なら `Ok(stderr)`（psql の NOTICE など）、
+    /// 失敗なら `Err(stderr)`（入力された SQL のログは、失敗した文までの出力も見せる）。外側の `Err` は
+    /// 起こせなかったとき（クライアントが無い・exec の失敗）。`via_stdin` なら SQL を標準入力で渡す
+    /// （入力した SQL。`sql::SqlInput::Stdin` の doc）。
+    async fn run_mode<S: Sink>(
         &mut self,
         sql: &str,
+        via_stdin: bool,
+        mode: OutputMode,
         timeout: Duration,
         mut sink: S,
-    ) -> Result<S, String> {
+    ) -> Result<(S, Result<String, String>), String> {
         let conn = ConnArgs {
             host: self.host.as_deref(),
             port: self.port,
             user: self.user.as_deref(),
             database: self.database.as_deref(),
         };
-        let args = sql::client_args(self.engine, &conn, sql);
+        let input = if via_stdin {
+            SqlInput::Stdin
+        } else {
+            SqlInput::Arg(sql)
+        };
+        let args = sql::client_args(self.engine, &conn, input, mode);
+        let stdin = via_stdin.then(|| match self.engine {
+            Engine::Postgres => {
+                sql::restricted_script(sql, &uuid::Uuid::new_v4().simple().to_string())
+            }
+            Engine::Mysql => sql.to_owned(),
+        });
         let all = self.engine.clients();
         let (start, candidates) = match self.client {
             Some(i) => (i, &all[i..=i]),
@@ -369,33 +555,39 @@ impl Session {
         };
         let probe = self.client.is_none();
         for (i, &client) in candidates.iter().enumerate() {
+            let reader = RecordReader::new(self.engine, mode);
             let outcome = match &self.route {
                 Route::Container { docker, id } => {
                     let call = ExecCall {
                         client,
                         args: &args,
                         env: &self.env,
+                        stdin: stdin.as_deref(),
                         probe,
                     };
-                    run_container(docker, id, call, self.engine, timeout, sink).await?
+                    run_container(docker, id, call, reader, timeout, sink).await?
                 }
                 Route::Shell(shell) => {
-                    let (shell, args, env, engine) =
-                        (shell.clone(), args.clone(), self.env.clone(), self.engine);
+                    let (shell, args, env) = (shell.clone(), args.clone(), self.env.clone());
+                    let stdin = stdin.clone();
                     tokio::task::spawn_blocking(move || {
-                        run_shell(&shell, client, &args, &env, engine, timeout, sink)
+                        let io = ShellIo { reader, stdin };
+                        run_shell(&shell, client, &args, &env, io, timeout, sink)
                     })
                     .await
                     .map_err(|e| e.to_string())??
                 }
             };
-            match outcome {
-                Outcome::Done(s) => {
-                    self.client = Some(start + i);
-                    return Ok(s);
+            let done = match outcome {
+                Outcome::Done(s, notices) => (s, Ok(notices)),
+                Outcome::Failed(s, e) => (s, Err(e)),
+                Outcome::Missing(s) => {
+                    sink = s;
+                    continue;
                 }
-                Outcome::Missing(s) => sink = s,
-            }
+            };
+            self.client = Some(start + i);
+            return Ok(done);
         }
         Err(format!(
             "{CLIENT_NOT_FOUND}{}",
@@ -405,9 +597,9 @@ impl Session {
 
     async fn query(&mut self, sql: &str, limit: Option<usize>) -> Result<DbResult, String> {
         Ok(self
-            .run(sql, DEFAULT_TIMEOUT, Collect::default())
+            .run(sql, DEFAULT_TIMEOUT, Collect::new(limit))
             .await?
-            .into_result(limit))
+            .into_result())
     }
 
     async fn tables(&mut self) -> Result<Vec<DbTable>, String> {
@@ -469,6 +661,13 @@ async fn container_env(docker: &Docker, container_id: &str) -> Result<Vec<String
     Ok(info.config.and_then(|c| c.env).unwrap_or_default())
 }
 
+/// シェルの経路の入出力。`stdin` は標準入力へ流し込む SQL（`sql::SqlInput::Stdin`。psql なら
+/// `sql::restricted_script` を通したもの。無ければ閉じる）。
+struct ShellIo {
+    reader: RecordReader,
+    stdin: Option<String>,
+}
+
 /// シェルの環境で起こす。**WSL は `sh -c 'PATH=… exec "$0" "$@"'` を挟む**: `wsl.exe -e` で
 /// 直に起こすと、見つからないときに終了コード 1 と `execvpe(...) failed` しか返らず、接続の
 /// 失敗と区別できない（実測）。挟めば `sh` が 127 を返し、`~/.local/bin` なども探せる。
@@ -479,10 +678,11 @@ fn run_shell<S: Sink>(
     client: &str,
     args: &[String],
     env: &[(&str, String)],
-    engine: Engine,
+    io: ShellIo,
     timeout: Duration,
     sink: S,
 ) -> Result<Outcome<S>, String> {
+    let ShellIo { reader, stdin } = io;
     let script = format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" exec \"$0\" \"$@\"");
     let mut argv: Vec<&str> = Vec::new();
     let program = if matches!(shell, ShellConfig::Wsl { .. }) {
@@ -495,7 +695,11 @@ fn run_shell<S: Sink>(
     let mut cmd = shell.command_env(program, &argv, env);
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::null());
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Outcome::Missing(sink)),
@@ -505,8 +709,16 @@ fn run_shell<S: Sink>(
     let (code, stderr, sink, sink_err) = wait_with_timeout(pid, timeout, client, move || {
         let stderr = child.stderr.take();
         let stderr_thread =
-            std::thread::spawn(move || stderr.map(drain_stderr).unwrap_or_default());
-        let mut feeder = Feeder::new(engine, sink);
+            std::thread::spawn(move || stderr.map(drain_stderr_keep).unwrap_or_default());
+        // 書き込みは別のスレッドで（stdout を読まずに書き続けると、出力のパイプが詰まった子が
+        // 標準入力を読まなくなって互いに止まる）。書き終えたら閉じて EOF を知らせる。失敗（子が先に
+        // 終わった）は子の終了コードと stderr が言うので捨てる。
+        if let (Some(mut pipe), Some(sql)) = (child.stdin.take(), stdin) {
+            std::thread::spawn(move || {
+                let _ = pipe.write_all(sql.as_bytes());
+            });
+        }
+        let mut feeder = Feeder::new(reader, sink);
         if let Some(mut stdout) = child.stdout.take() {
             let mut buf = vec![0u8; 64 * 1024];
             loop {
@@ -541,6 +753,8 @@ struct ExecCall<'a> {
     client: &'a str,
     args: &'a [String],
     env: &'a [(&'static str, String)],
+    /// 標準入力へ流し込む SQL（`sql::SqlInput::Stdin`）。
+    stdin: Option<&'a str>,
     probe: bool,
 }
 
@@ -548,7 +762,7 @@ async fn run_container<S: Sink>(
     docker: &Docker,
     container_id: &str,
     call: ExecCall<'_>,
-    engine: Engine,
+    reader: RecordReader,
     timeout: Duration,
     sink: S,
 ) -> Result<Outcome<S>, String> {
@@ -561,11 +775,34 @@ async fn run_container<S: Sink>(
             return Ok(Outcome::Missing(sink));
         }
     }
-    let mut cmd = vec![client.to_owned()];
+    let mut env: Vec<String> = call.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    // **標準入力へ流す SQL は、exec の標準入力ではなく環境変数で渡し、コンテナの中の `sh` で流し込む。**
+    // bollard の exec に `attach_stdin` で書き、EOF を知らせるために書き込み側を閉じると、接続ごと
+    // 閉じて出力も終了コードも取れなくなる（実測。終了コードが -1 のまま返る）。値は `"$PIKE_SQL_0"` の
+    // ように展開するだけで、`sh` が SQL を読み直すことはない。
+    //
+    // **環境変数は 1 つ 128 KiB までで、全体も 2 MiB ほどで頭打ちになる**（Linux の execve。超えると exec が
+    // `argument list too long` で起動せず、終了コード 126 で「クライアントが無い」に見える）。そこで
+    // `STDIN_CHUNK` ずつの変数に分け、全体は `CONTAINER_SQL_MAX` までにして、超えたら起こす前に断る。
+    let mut cmd = match call.stdin {
+        Some(sql) if sql.len() > CONTAINER_SQL_MAX => {
+            return Err(format!("{SQL_TOO_LONG}{CONTAINER_SQL_MAX}"));
+        }
+        Some(sql) => {
+            let chunks = split_at_char_boundaries(sql, STDIN_CHUNK);
+            let mut refs = Vec::with_capacity(chunks.len());
+            for (n, chunk) in chunks.iter().enumerate() {
+                env.push(format!("{STDIN_ENV}_{n}={chunk}"));
+                refs.push(format!("\"${STDIN_ENV}_{n}\""));
+            }
+            let script = format!("printf '%s' {} | exec \"$0\" \"$@\"", refs.join(" "));
+            vec!["sh".to_owned(), "-c".to_owned(), script, client.to_owned()]
+        }
+        None => vec![client.to_owned()],
+    };
     cmd.extend(call.args.iter().cloned());
-    let env: Vec<String> = call.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
     let exec = exec_create(docker, container_id, cmd, env).await?;
-    let mut feeder = Feeder::new(engine, sink);
+    let mut feeder = Feeder::new(reader, sink);
     let (code, stderr) = exec_drain(docker, &exec, timeout, |bytes| {
         // ファイルへ書く sink は同期の I/O なので、async のワーカーを塞がないよう逃がす。
         if S::BLOCKING {
@@ -575,6 +812,11 @@ async fn run_container<S: Sink>(
         }
     })
     .await?;
+    // `sh` を挟んだ経路の 126 / 127 は `sh` が無いということ（クライアントは `--version` で確かめてある）。
+    // 「クライアントが無い」にすると、一覧とレコードは見られるのに SQL だけ失敗する理由が分からない。
+    if call.stdin.is_some() && is_missing(code) {
+        return Err(CONTAINER_SH_NOT_FOUND.to_owned());
+    }
     let (sink, sink_err) = feeder.finish();
     conclude(sink, code, &stderr, sink_err)
 }
@@ -608,7 +850,7 @@ async fn exec_drain(
     timeout: Duration,
     mut on_stdout: impl FnMut(&[u8]),
 ) -> Result<(i64, String), String> {
-    let mut stderr = String::new();
+    let mut stderr = StderrKeep::default();
     if let StartExecResults::Attached { mut output, .. } = docker
         .start_exec(exec_id, None)
         .await
@@ -618,8 +860,8 @@ async fn exec_drain(
             while let Some(msg) = output.next().await {
                 match msg.map_err(|e| e.to_string())? {
                     LogOutput::StdOut { message } => on_stdout(&message),
-                    LogOutput::StdErr { message } if stderr.len() < STDERR_KEEP_MAX => {
-                        stderr.push_str(&String::from_utf8_lossy(&message));
+                    LogOutput::StdErr { message } => {
+                        stderr.push(&String::from_utf8_lossy(&message));
                     }
                     _ => {}
                 }
@@ -638,7 +880,7 @@ async fn exec_drain(
         .map_err(|e| e.to_string())?
         .exit_code
         .unwrap_or(-1);
-    Ok((code, stderr))
+    Ok((code, stderr.into_string()))
 }
 
 /// コンテナの環境変数から読んだ接続の既定（ユーザー名・DB 名・パスワードの有無）。
@@ -765,6 +1007,108 @@ pub async fn db_dump(
     finish_temp(&tmp, &dest, written)
 }
 
+/// 入力された SQL の結果（`db_execute`）。
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DbExec {
+    /// 表を返す 1 つの文（`UserSql::Query`）。
+    Rows { result: DbResult },
+    /// それ以外。クライアントが人向けに出したもの（文ごとの結果・影響した行数・整列した表）。
+    /// `tables` は実行のあとのテーブルの一覧（DDL で増減するので、同じ `Session` で読み直す。
+    /// 取れなければ None）。
+    Log {
+        text: String,
+        truncated: bool,
+        tables: Option<Vec<DbTable>>,
+    },
+}
+
+/// **利用者が入力した SQL をそのまま流す**（#646。DDL と書き込みも受ける）。表を返す 1 つの文は
+/// 表で、それ以外はクライアントのログで返す（`sql::plan_user_sql`）。SQL は標準入力で渡す
+/// （`sql::SqlInput::Stdin`）。接続先はつないだタブのもので、権限はその DB ユーザーのものになる。
+///
+/// **クライアントのコマンド（`\!` や MySQL の `system`）を含む SQL は実行しない**（`sql::client_command`）。
+/// DB の権限の外で、クライアントを起こした環境の OS のコマンドが動くため。
+///
+/// エラーのときは、それまでに流れた文のログを前に付けて返す（どこまで通ったかが分かるように）。
+#[tauri::command]
+pub async fn db_execute(
+    target: DbTarget,
+    sql: String,
+    state: State<'_, DockerState>,
+) -> Result<DbExec, String> {
+    let engine = target.engine;
+    if let Some(cmd) = sql::client_command(engine, &sql) {
+        return Err(format!("{CLIENT_COMMAND}{cmd}"));
+    }
+    let plan = sql::plan_user_sql(engine, &sql).ok_or_else(|| SQL_EMPTY.to_owned())?;
+    let mut session = Session::open(&state, &target).await?;
+    if let UserSql::Query(query) = plan {
+        let collect = Collect::new(Some(ROW_LIMIT));
+        match session
+            .run_mode(&query, true, OutputMode::Records, EXEC_TIMEOUT, collect)
+            .await?
+        {
+            (c, Ok(_)) => {
+                return Ok(DbExec::Rows {
+                    result: c.into_result(),
+                });
+            }
+            // `COPY` で包めなかった文は、ログで流し直す（拒まれた時点では実行されていない）。
+            (_, Err(e)) if sql::copy_rejected(engine, &e) => {}
+            (_, Err(e)) => return Err(user_sql_error(engine, &e, true)),
+        }
+    }
+    let (log, err) = session
+        .run_mode(
+            &sql,
+            true,
+            OutputMode::Log,
+            EXEC_TIMEOUT,
+            LogSink::default(),
+        )
+        .await?;
+    let (text, truncated) = log.into_text(engine);
+    match err {
+        // 成功しても psql は NOTICE / WARNING を stderr に出す（`DROP TABLE IF EXISTS` の skipping など）。
+        // 出力のあとに添える（捨てると、テーブルが無かったことが分からない）。
+        Ok(notices) => {
+            let notices = user_sql_error(engine, &notices, false);
+            let text = match (text.is_empty(), notices.is_empty()) {
+                (_, true) => text,
+                (true, false) => notices,
+                (false, false) => format!("{text}\n\n{notices}"),
+            };
+            Ok(DbExec::Log {
+                text,
+                truncated,
+                tables: session.tables().await.ok(),
+            })
+        }
+        // 古い psql は 1 行目で止まるので、出力を前に付けない（接頭辞のまま返してフロントが文言にする）。
+        Err(e) if sql::restrict_unsupported(engine, &e) => Err(PSQL_NO_RESTRICT.to_owned()),
+        Err(e) if text.is_empty() => Err(user_sql_error(engine, &e, false)),
+        Err(e) => Err(format!("{text}\n\n{}", user_sql_error(engine, &e, false))),
+    }
+}
+
+/// 入力した SQL のエラー（と NOTICE）を見せる形にする。psql が `\restrict` を知らないなら（古い）
+/// その旨の接頭辞に、そうでなければ `LOCATION:` の行を落とし、`psql:<stdin>:N:` を直す。`query`
+/// （表の形。`COPY (...)` で包んだ 1 文）のときは `psql:<stdin>:N:` を外す（包んだ文の終わりの行を
+/// 指していて、入力の行と合わない。行は `LINE n:` が入力どおりに言う）。ログの形では、`restricted_script`
+/// が足した 1 行ぶん戻す。
+fn user_sql_error(engine: Engine, stderr: &str, query: bool) -> String {
+    if sql::restrict_unsupported(engine, stderr) {
+        return PSQL_NO_RESTRICT.to_owned();
+    }
+    let msg = sql::tidy_error(stderr);
+    match (engine, query) {
+        (Engine::Postgres, true) => sql::strip_stdin_lines(&msg),
+        (Engine::Postgres, false) => sql::unshift_stdin_lines(&msg),
+        (Engine::Mysql, _) => msg,
+    }
+}
+
 /// 書き出しの一時ファイル（保存先と同じディレクトリ。同じボリュームなので rename で置き換えられる）。
 fn temp_path_for(dest: &std::path::Path) -> std::path::PathBuf {
     let name = dest
@@ -875,7 +1219,7 @@ mod tests {
         c.record(vec![Some("h".to_owned()), Some("i".to_owned())])
             .unwrap();
         c.record(vec![Some(long), None]).unwrap();
-        let row = &c.into_result(None).rows[0];
+        let row = &c.into_result().rows[0];
         let clipped = row[0].as_deref().unwrap();
         assert_eq!(clipped.chars().count(), CELL_MAX_CHARS + 1);
         assert!(clipped.ends_with('…'));
@@ -884,15 +1228,108 @@ mod tests {
 
     #[test]
     fn collect_reports_truncation() {
-        let mut c = Collect::default();
-        for r in [["h"], ["1"], ["2"], ["3"]] {
+        let mut c = Collect::new(Some(2));
+        for r in [["h"], ["1"], ["2"], ["3"], ["4"]] {
             c.record(r.iter().map(|s| Some((*s).to_owned())).collect())
                 .unwrap();
         }
-        let result = c.into_result(Some(2));
+        // 上限を 1 行超えたところからは持たない（入力された SQL は `LIMIT` で絞れない）。
+        assert_eq!(c.rows.len(), 3);
+        let result = c.into_result();
         assert_eq!(result.columns, vec!["h"]);
         assert_eq!(result.rows.len(), 2);
         assert!(result.truncated);
+    }
+
+    #[test]
+    fn log_sink_caps_and_trims_the_mysql_farewell() {
+        let log_of = |lines: &[&str]| {
+            let mut log = LogSink::default();
+            for line in lines {
+                log.record(vec![Some((*line).to_owned())]).unwrap();
+            }
+            log
+        };
+        let farewell = ["Query OK, 2 rows affected", "", "Bye", ""];
+        assert_eq!(
+            log_of(&farewell).into_text(Engine::Mysql),
+            ("Query OK, 2 rows affected".to_owned(), false)
+        );
+        // 落とすのは MySQL の、ちょうど `Bye` の行だけ。
+        assert_eq!(
+            log_of(&[" a", " Goodbye"]).into_text(Engine::Mysql).0,
+            " a\n Goodbye"
+        );
+        assert_eq!(
+            log_of(&farewell).into_text(Engine::Postgres).0,
+            "Query OK, 2 rows affected\n\nBye"
+        );
+        // 上限を超えたら、入るぶんまで残して切る（改行を含めて上限の 1 バイト手前まで）。
+        let line = "x".repeat(LOG_MAX_BYTES / 2);
+        let (text, truncated) = log_of(&[&line, &line, &line]).into_text(Engine::Mysql);
+        assert!(truncated);
+        assert_eq!(text.len(), LOG_MAX_BYTES - 1);
+        // 最初の行が上限より長くても空にしない。多バイト文字の途中では切らない。
+        let long = "あ".repeat(LOG_MAX_BYTES);
+        let (text, truncated) = log_of(&[&long]).into_text(Engine::Postgres);
+        assert!(truncated);
+        assert!(!text.is_empty() && text.len() < LOG_MAX_BYTES);
+        assert!(text.chars().all(|c| c == 'あ'));
+        // 上限に達したあとの空の行も足さない。
+        let mut log = LogSink::default();
+        log.record(vec![Some("x".repeat(LOG_MAX_BYTES - 2))])
+            .unwrap();
+        for _ in 0..5 {
+            log.record(vec![Some(String::new())]).unwrap();
+        }
+        assert!(log.truncated && log.text.len() <= LOG_MAX_BYTES);
+    }
+
+    #[test]
+    fn a_long_utf8_log_line_is_reported_as_truncated() {
+        // Copilot のレビューの例: `repeat('あ', 349526)` の 1 行を 64 KiB ずつ受け、改行が別の塊で届く。
+        // 読み手が溜める段階で切っても、`LogSink` が切ったことを知らせる。
+        let line = "あ".repeat(349_526);
+        let mut feeder = Feeder::new(
+            RecordReader::new(Engine::Postgres, OutputMode::Log),
+            LogSink::default(),
+        );
+        for chunk in line.as_bytes().chunks(64 * 1024) {
+            feeder.push(chunk);
+        }
+        feeder.push(b"\n");
+        let (sink, _) = feeder.finish();
+        let (text, truncated) = sink.into_text(Engine::Postgres);
+        assert!(truncated);
+        assert!(text.len() < LOG_MAX_BYTES && text.chars().all(|c| c == 'あ'));
+    }
+
+    #[test]
+    fn stderr_keeps_the_head_and_the_last_error() {
+        // NOTICE で上限を埋めても、最後の ERROR は残る。
+        let mut keep = StderrKeep::default();
+        for _ in 0..5000 {
+            keep.push("psql:<stdin>:2: NOTICE:  table \"t\" does not exist, skipping\n");
+        }
+        keep.push("psql:<stdin>:5001: ERROR:  syntax error\n");
+        let s = keep.into_string();
+        assert!(s.len() <= STDERR_KEEP_MAX + 8);
+        assert!(s.starts_with("psql:<stdin>:2: NOTICE"));
+        assert!(s.contains("\n…\n"));
+        assert!(s.ends_with("ERROR:  syntax error\n"));
+        // 上限に届かなければ、そのまま。
+        let mut keep = StderrKeep::default();
+        keep.push("a\n");
+        keep.push("b\n");
+        assert_eq!(keep.into_string(), "a\nb\n");
+    }
+
+    #[test]
+    fn long_sql_is_split_for_the_container() {
+        let sql = format!("SELECT '{}'", "日".repeat(STDIN_CHUNK));
+        let chunks = split_at_char_boundaries(&sql, STDIN_CHUNK);
+        assert!(chunks.len() > 1 && chunks.iter().all(|c| c.len() <= STDIN_CHUNK));
+        assert_eq!(chunks.concat(), sql);
     }
 
     #[test]
@@ -901,10 +1338,13 @@ mod tests {
             conclude((), 127, "", None),
             Ok(Outcome::Missing(()))
         ));
-        assert!(matches!(conclude((), 0, "", None), Ok(Outcome::Done(()))));
-        assert_eq!(
-            conclude((), 1, "ERROR 1045 (28000): Access denied\n", None).err(),
-            Some("ERROR 1045 (28000): Access denied".to_owned())
-        );
+        assert!(matches!(
+            conclude((), 0, "NOTICE:  x\n", None),
+            Ok(Outcome::Done((), n)) if n == "NOTICE:  x"
+        ));
+        assert!(matches!(
+            conclude((), 1, "ERROR 1045 (28000): Access denied\n", None),
+            Ok(Outcome::Failed((), e)) if e == "ERROR 1045 (28000): Access denied"
+        ));
     }
 }
