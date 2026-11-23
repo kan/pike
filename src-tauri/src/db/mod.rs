@@ -28,7 +28,7 @@ use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::query_parameters::InspectContainerOptions;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use sql::{Cell, ConnArgs, DumpFormat, Engine, OutputMode, RecordReader, UserSql};
+use sql::{Cell, ConnArgs, DumpFormat, Engine, OutputMode, RecordReader, SqlInput, UserSql};
 use std::io::{Read, Write};
 use std::process::Stdio;
 use std::time::Duration;
@@ -56,8 +56,39 @@ const LOG_MAX_BYTES: usize = 1024 * 1024;
 /// 「`mysql` が見つからない」と出す。
 const CLIENT_NOT_FOUND: &str = "db-client-not-found:";
 
-/// コンテナの経路で、標準入力へ流す SQL を渡す環境変数（`run_container`）。
+/// コンテナの経路で、標準入力へ流す SQL を渡す環境変数の接頭辞（`run_container`。`PIKE_SQL_0` ...）。
 const STDIN_ENV: &str = "PIKE_SQL";
+
+/// 環境変数 1 つに入れる SQL の大きさ（バイト）。Linux の上限（1 つ 128 KiB）の半分。
+const STDIN_CHUNK: usize = 64 * 1024;
+
+/// コンテナの経路で渡せる SQL の大きさ（バイト）。execve の引数と環境変数の合計（2 MiB ほど）に収める。
+const CONTAINER_SQL_MAX: usize = 1024 * 1024;
+
+/// SQL が長すぎるときのエラーの接頭辞（後ろに上限のバイト数）。フロント（`lib/dbViewer.ts`）が文言にする。
+const SQL_TOO_LONG: &str = "db-sql-too-long:";
+
+/// 入力した SQL にクライアントのコマンドがあったときのエラーの接頭辞（後ろにコマンド）。
+const CLIENT_COMMAND: &str = "db-client-command:";
+
+/// コンテナに `sh` が無く、入力した SQL を流し込めなかったときのエラー（`run_container`）。
+const CONTAINER_SH_NOT_FOUND: &str = "db-container-sh-not-found";
+
+/// `s` を `max` バイト以下の塊に分ける（文字の途中では切らない）。
+fn split_at_char_boundaries(s: &str, max: usize) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = s;
+    while !rest.is_empty() {
+        let mut end = rest.len().min(max);
+        while !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        let (head, tail) = rest.split_at(end);
+        out.push(head);
+        rest = tail;
+    }
+    out
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -246,12 +277,24 @@ struct LogSink {
 
 impl Sink for LogSink {
     fn record(&mut self, cells: Vec<Cell>) -> std::io::Result<()> {
+        if self.truncated {
+            return Ok(());
+        }
         let line = cells.into_iter().next().flatten().unwrap_or_default();
-        if self.truncated || self.text.len() + line.len() >= LOG_MAX_BYTES {
-            self.truncated = true;
-        } else {
+        // 改行も含めて比べる（空の行でも 1 バイト足すので、上限に達したら打ち切る）。
+        let room = LOG_MAX_BYTES.saturating_sub(self.text.len());
+        if line.len() < room {
             self.text.push_str(&line);
             self.text.push('\n');
+        } else {
+            // 入り切らない行は、入るぶんだけ（文字の途中で切らずに）残す。捨てると、最初の行が長いだけで
+            // ログが空になり「出力はありません」と見える。
+            let mut end = room.saturating_sub(1).min(line.len());
+            while !line.is_char_boundary(end) {
+                end -= 1;
+            }
+            self.text.push_str(&line[..end]);
+            self.truncated = true;
         }
         Ok(())
     }
@@ -410,7 +453,7 @@ impl Session {
     /// `sql` を実行し、出力を `sink` へ流す。クライアントのエラーは `Err` にする。
     async fn run<S: Sink>(&mut self, sql: &str, timeout: Duration, sink: S) -> Result<S, String> {
         match self
-            .run_mode(sql, OutputMode::Records, timeout, sink)
+            .run_mode(sql, false, OutputMode::Records, timeout, sink)
             .await?
         {
             (s, None) => Ok(s),
@@ -421,9 +464,11 @@ impl Session {
     /// `sql` を `mode` の形で実行し、出力を `sink` へ流す。クライアントが決まっていなければ候補を
     /// 順に試す。**クライアントのエラーは sink と一緒に返す**（入力された SQL のログは、失敗した文
     /// までの出力も見せる）。`Err` は起こせなかったとき（クライアントが無い・exec の失敗）。
+    /// `via_stdin` なら SQL を標準入力で渡す（入力した SQL。`sql::SqlInput::Stdin` の doc）。
     async fn run_mode<S: Sink>(
         &mut self,
         sql: &str,
+        via_stdin: bool,
         mode: OutputMode,
         timeout: Duration,
         mut sink: S,
@@ -434,8 +479,13 @@ impl Session {
             user: self.user.as_deref(),
             database: self.database.as_deref(),
         };
-        let args = sql::client_args(self.engine, &conn, sql, mode);
-        let stdin = sql::sql_on_stdin(self.engine, mode).then(|| sql.to_owned());
+        let input = if via_stdin {
+            SqlInput::Stdin
+        } else {
+            SqlInput::Arg(sql)
+        };
+        let args = sql::client_args(self.engine, &conn, input, mode);
+        let stdin = via_stdin.then(|| sql.to_owned());
         let all = self.engine.clients();
         let (start, candidates) = match self.client {
             Some(i) => (i, &all[i..=i]),
@@ -665,12 +715,24 @@ async fn run_container<S: Sink>(
     let mut env: Vec<String> = call.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
     // **標準入力へ流す SQL は、exec の標準入力ではなく環境変数で渡し、コンテナの中の `sh` で流し込む。**
     // bollard の exec に `attach_stdin` で書き、EOF を知らせるために書き込み側を閉じると、接続ごと
-    // 閉じて出力も終了コードも取れなくなる（実測。終了コードが -1 のまま返る）。値は `"$PIKE_SQL"` で
-    // 展開するだけで、`sh` が SQL を読み直すことはない。
+    // 閉じて出力も終了コードも取れなくなる（実測。終了コードが -1 のまま返る）。値は `"$PIKE_SQL_0"` の
+    // ように展開するだけで、`sh` が SQL を読み直すことはない。
+    //
+    // **環境変数は 1 つ 128 KiB までで、全体も 2 MiB ほどで頭打ちになる**（Linux の execve。超えると exec が
+    // `argument list too long` で起動せず、終了コード 126 で「クライアントが無い」に見える）。そこで
+    // `STDIN_CHUNK` ずつの変数に分け、全体は `CONTAINER_SQL_MAX` までにして、超えたら起こす前に断る。
     let mut cmd = match call.stdin {
+        Some(sql) if sql.len() > CONTAINER_SQL_MAX => {
+            return Err(format!("{SQL_TOO_LONG}{CONTAINER_SQL_MAX}"));
+        }
         Some(sql) => {
-            env.push(format!("{STDIN_ENV}={sql}"));
-            let script = format!("printf '%s' \"${STDIN_ENV}\" | exec \"$0\" \"$@\"");
+            let chunks = split_at_char_boundaries(sql, STDIN_CHUNK);
+            let mut refs = Vec::with_capacity(chunks.len());
+            for (n, chunk) in chunks.iter().enumerate() {
+                env.push(format!("{STDIN_ENV}_{n}={chunk}"));
+                refs.push(format!("\"${STDIN_ENV}_{n}\""));
+            }
+            let script = format!("printf '%s' {} | exec \"$0\" \"$@\"", refs.join(" "));
             vec!["sh".to_owned(), "-c".to_owned(), script, client.to_owned()]
         }
         None => vec![client.to_owned()],
@@ -687,6 +749,11 @@ async fn run_container<S: Sink>(
         }
     })
     .await?;
+    // `sh` を挟んだ経路の 126 / 127 は `sh` が無いということ（クライアントは `--version` で確かめてある）。
+    // 「クライアントが無い」にすると、一覧とレコードは見られるのに SQL だけ失敗する理由が分からない。
+    if call.stdin.is_some() && is_missing(code) {
+        return Err(CONTAINER_SH_NOT_FOUND.to_owned());
+    }
     let (sink, sink_err) = feeder.finish();
     conclude(sink, code, &stderr, sink_err)
 }
@@ -894,11 +961,13 @@ pub enum DbExec {
 }
 
 /// **利用者が入力した SQL をそのまま流す**（#646。DDL と書き込みも受ける）。表を返す 1 つの文は
-/// 表で、それ以外はクライアントのログで返す（`sql::plan_user_sql`）。SQL はクライアントの引数の
-/// 1 語で渡り、シェルを挟まない。接続先はつないだタブのもので、権限はその DB ユーザーのものになる。
+/// 表で、それ以外はクライアントのログで返す（`sql::plan_user_sql`）。SQL は標準入力で渡す
+/// （`sql::SqlInput::Stdin`）。接続先はつないだタブのもので、権限はその DB ユーザーのものになる。
 ///
-/// エラーのときは、それまでに流れた文のログを前に付けて返す（PostgreSQL はどの文で止まったかを
-/// 言わないので、どこまで通ったかが分かるように）。
+/// **クライアントのコマンド（`\!` や MySQL の `system`）を含む SQL は実行しない**（`sql::client_command`）。
+/// DB の権限の外で、クライアントを起こした環境の OS のコマンドが動くため。
+///
+/// エラーのときは、それまでに流れた文のログを前に付けて返す（どこまで通ったかが分かるように）。
 #[tauri::command]
 pub async fn db_execute(
     target: DbTarget,
@@ -906,12 +975,15 @@ pub async fn db_execute(
     state: State<'_, DockerState>,
 ) -> Result<DbExec, String> {
     let engine = target.engine;
+    if let Some(cmd) = sql::client_command(engine, &sql) {
+        return Err(format!("{CLIENT_COMMAND}{cmd}"));
+    }
     let plan = sql::plan_user_sql(engine, &sql).ok_or_else(|| "SQL is empty".to_owned())?;
     let mut session = Session::open(&state, &target).await?;
     if let UserSql::Query(query) = plan {
         let collect = Collect::new(Some(ROW_LIMIT));
         match session
-            .run_mode(&query, OutputMode::Records, EXEC_TIMEOUT, collect)
+            .run_mode(&query, true, OutputMode::Records, EXEC_TIMEOUT, collect)
             .await?
         {
             (c, None) => {
@@ -925,7 +997,13 @@ pub async fn db_execute(
         }
     }
     let (log, err) = session
-        .run_mode(&sql, OutputMode::Log, EXEC_TIMEOUT, LogSink::default())
+        .run_mode(
+            &sql,
+            true,
+            OutputMode::Log,
+            EXEC_TIMEOUT,
+            LogSink::default(),
+        )
         .await?;
     let (text, truncated) = log.into_text(engine);
     match err {
@@ -1094,10 +1172,33 @@ mod tests {
             log_of(&farewell).into_text(Engine::Postgres).0,
             "Query OK, 2 rows affected\n\nBye"
         );
+        // 上限を超えたら、入るぶんまで残して切る（改行を含めて上限の 1 バイト手前まで）。
         let line = "x".repeat(LOG_MAX_BYTES / 2);
         let (text, truncated) = log_of(&[&line, &line, &line]).into_text(Engine::Mysql);
         assert!(truncated);
-        assert_eq!(text.len(), line.len());
+        assert_eq!(text.len(), LOG_MAX_BYTES - 1);
+        // 最初の行が上限より長くても空にしない。多バイト文字の途中では切らない。
+        let long = "あ".repeat(LOG_MAX_BYTES);
+        let (text, truncated) = log_of(&[&long]).into_text(Engine::Postgres);
+        assert!(truncated);
+        assert!(!text.is_empty() && text.len() < LOG_MAX_BYTES);
+        assert!(text.chars().all(|c| c == 'あ'));
+        // 上限に達したあとの空の行も足さない。
+        let mut log = LogSink::default();
+        log.record(vec![Some("x".repeat(LOG_MAX_BYTES - 2))])
+            .unwrap();
+        for _ in 0..5 {
+            log.record(vec![Some(String::new())]).unwrap();
+        }
+        assert!(log.truncated && log.text.len() <= LOG_MAX_BYTES);
+    }
+
+    #[test]
+    fn long_sql_is_split_for_the_container() {
+        let sql = format!("SELECT '{}'", "日".repeat(STDIN_CHUNK));
+        let chunks = split_at_char_boundaries(&sql, STDIN_CHUNK);
+        assert!(chunks.len() > 1 && chunks.iter().all(|c| c.len() <= STDIN_CHUNK));
+        assert_eq!(chunks.concat(), sql);
     }
 
     #[test]

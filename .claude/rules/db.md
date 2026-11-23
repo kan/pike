@@ -72,10 +72,42 @@ DB の一覧・テーブルの一覧・スキーマ・レコードの 4 種類�
 
 ## 入力した SQL（#646）
 
-DB タブの「SQL」で入力した SQL を、**加工せずに**クライアントへ渡す（`db_execute`）。MySQL は引数の 1 語
-（`--execute=`）、PostgreSQL は表の形なら `--command=`、ログの形なら標準入力（下の「ログの形」）。DDL も書き込みも
-受け、確認は挟まない（issue の方針。権限は接続したユーザーのもの）。SQL の中身がシェルに読まれることは無い
-（シェルを挟まないか、挟むコンテナの `sh` も変数を展開して渡すだけ）。
+DB タブの「SQL」で入力した SQL を、**加工せずに標準入力で**クライアントへ渡す（`db_execute`、`sql::SqlInput::Stdin`）。
+DDL も書き込みも受け、確認は挟まない（issue の方針。権限は接続したユーザーのもの）。SQL の中身がシェルに読まれることは
+無い（シェルを挟まないか、挟むコンテナの `sh` も変数を展開して渡すだけ）。
+
+- **標準入力で渡す理由は 2 つ**（`SqlInput::Stdin` の doc が正本）。psql の `--command` に複数の文を渡すと 1 回の
+  問い合わせになり、サーバーは 1 つの暗黙のトランザクションで実行する。途中で失敗すると前の文も取り消されるのに、
+  ログには前の文の結果が残る（実測。`CREATE TABLE` と `INSERT` のあとの失敗で、テーブルごと無くなる）。標準入力
+  （`--file=-`）なら psql が文ごとに送るので文ごとに確定し、エラーに `psql:<stdin>:4:` と行も付く。もう 1 つは引数の
+  長さの上限（Linux は 1 語 128 KiB、Windows はコマンドライン全体で 32,767 文字）。MySQL は標準入力でも `--batch` と
+  `--table -vv` の出力の形が変わらない（実測）
+  - シェルの経路はパイプで書く（`ShellIo`。書き込みは別のスレッドで、出力を読みながら）
+  - **コンテナの経路は、SQL を exec の環境変数（`STDIN_ENV`）で渡し、コンテナの `sh` で流し込む**
+    （`printf '%s' "$PIKE_SQL_0" "$PIKE_SQL_1" | exec "$0" "$@"`）。bollard の exec に `attach_stdin` で書いて書き込み側を
+    閉じると、接続ごと閉じて出力も終了コードも取れない（実測。終了コードが -1 のまま返る）。コンテナに `sh` が要る
+  - 環境変数は 1 つ 128 KiB まで、引数と合わせて全体で 2 MiB ほどまで（execve。超えると exec が起動せず、終了コード
+    126 で「クライアントが無い」に見える）。`STDIN_CHUNK`（64 KiB）ずつの変数に分け、全体は `CONTAINER_SQL_MAX`
+    （1 MiB）までにして、超えたら起こす前に `db-sql-too-long:` で断る（200 KiB の SQL が通ることを実測）
+- **クライアントのコマンドを含む SQL は実行しない**（`sql::client_command`、`db-client-command:`）。psql の `\! id` と
+  MySQL の `\! id` / 行頭の `system id` は、クライアントを起こした環境（ホスト・WSL・コンテナ）の OS のコマンドを走らせる
+  （どれも実測。`-X` は起動時のファイルを読まないだけで、これは止めない）。DB の権限の外で動くので、SQL の欄からは断る
+  - 文字列・引用した識別子・コメントの外の `\` は全部断る（どちらのクライアントでもコマンドの始まり）
+  - MySQL の名前の付いたコマンドは、OS やファイルに触る `MYSQL_CLIENT_COMMANDS`（`system` / `source` / `tee` /
+    `pager` / `edit`）を、行の頭か文の頭のものだけ断る（そこでしか認められない。列名の `system` は通す）
+  - **psql は字句での検出が守り、MySQL はクライアントの `--binary-mode` が守り**（`sql::client_command` の doc）。
+    psql の字句の読み方はこちらと同じで、`standard_conforming_strings` を切っても文字列が長くなる向きにしか
+    変わらないので、外の `\` を見落とさない。MySQL は `sql_mode`（`NO_BACKSLASH_ESCAPES` / `ANSI_QUOTES`）と
+    実行されるコメント（`/*! \! id */`）で読み方が変わり、字句では追い切れない。`--binary-mode` は標準入力から読む
+    ときに `charset` と `delimiter` 以外のクライアントのコマンドを止める（`\!` は `Unknown command`、`system` は
+    サーバーへ送られて構文エラー。上の迂回の例も含めて mariadb 11.8 で実測）。MySQL 5.6.3 からある。付けるのは
+    標準入力のときだけ（`client_args`）
+  - MariaDB の `--sandbox` も同じことをするが、MySQL と古い MariaDB のクライアントには無い（知らないオプションで
+    起動しない）ので使わない
+  - **コンテナに `sh` が無いと SQL を渡せない**（`db-container-sh-not-found`）。`sh` を挟んだ exec の 126 / 127 は
+    「クライアントが無い」にしない（クライアントは `--version` で確かめてあり、一覧とレコードは見られるのに SQL だけ
+    失敗する理由が分からなくなる）
+  - 実行の前に断ったとき（クライアントのコマンド、長すぎる SQL）はテーブルの一覧を読み直さない（`rejectedBeforeRun`）
 
 - **流し方は `sql::plan_user_sql` が決める。** 結果を返す文が 1 つだけ（MySQL は `SELECT` / `WITH` / `VALUES` /
   `TABLE` / `SHOW` / `DESCRIBE` / `DESC` / `EXPLAIN`、PostgreSQL は `SELECT` / `WITH` / `VALUES` / `TABLE`）なら
@@ -93,8 +125,12 @@ DB タブの「SQL」で入力した SQL を、**加工せずに**クライア�
   - 表にするときは前後の `;` とコメントを落とし（`body_start..body_end`。先頭の空の文は MySQL が
     `No query specified` で拒む）、PostgreSQL は前後に改行を挟んで `COPY (...)` で包む（行末の `--` のコメントが
     閉じ括弧を隠さないように）
-  - 表の形でも書き換える文は通りうる（MySQL の `WITH ... DELETE`、`SELECT ... INTO @v`）。結果の表が無ければ
-    「返った行はありません」と出す（行数の 0 とは言わない）
+  - **MySQL の最初の文が、括弧の外に `UPDATE` / `DELETE` / `INSERT` / `REPLACE` / `INTO` を持てばログの形にする**
+    （`SqlShape::writes`。`WITH ... UPDATE` と `SELECT ... INTO @v` は先頭の語が問い合わせでも結果の表を返さず、表の形では
+    件数が出ない）。直後が `(` の語は関数の呼び出し（`REPLACE(s, ...)`）なので、直前が `FOR` の `UPDATE` は
+    行のロック（`SELECT ... FOR UPDATE`。行を返す）なので数えない。流したあとで空の結果を見て
+    切り替える形にしないこと（書き込みが 2 回走る）
+  - それでも結果の表が無ければ「返った行はありません」と出す（行数の 0 とは言わない）
 - **PostgreSQL は `COPY` が拒む文がある**（`WITH ... UPDATE` で `RETURNING` が無いもの＝`COPY query must have a
   RETURNING clause`、`SELECT ... INTO`＝`COPY (SELECT INTO) is not supported`。どちらも実測）。拒むのは解析の段階で
   文は実行されていないので、`copy_rejected` を見てログの形で流し直す
@@ -106,15 +142,8 @@ DB タブの「SQL」で入力した SQL を、**加工せずに**クライア�
   `Query OK, N rows affected` を出し、最後に `Bye` の行を出す（`LogSink::into_text` が MySQL のときだけ、ちょうど
   `Bye` の最後の行を落とす。mariadb 11.8 で実測）。PostgreSQL は `-q` を外す。`-q` だと `UPDATE 2` / `CREATE TABLE`
   のコマンドの結果が出ない（postgres 18 で実測）
-  - **PostgreSQL は SQL を標準入力（`--file=-`）で渡す**（`sql::sql_on_stdin`）。`--command` に複数の文を渡すと
-    1 回の問い合わせになり、サーバーは 1 つの暗黙のトランザクションで実行する。途中で失敗すると前の文も取り消される
-    のに、ログには前の文の結果が残る（実測。`CREATE TABLE` と `INSERT` のあとの失敗で、テーブルごと無くなる）。
-    標準入力なら psql が文ごとに送るので文ごとに確定し、エラーに `psql:<stdin>:4:` と行も付く
-    - シェルの経路はパイプで書く（`ShellIo`。書き込みは別のスレッドで、出力を読みながら）
-    - **コンテナの経路は、SQL を exec の環境変数（`STDIN_ENV`）で渡し、コンテナの `sh` で流し込む**
-      （`printf '%s' "$PIKE_SQL" | exec "$0" "$@"`）。bollard の exec に `attach_stdin` で書いて書き込み側を閉じると、
-      接続ごと閉じて出力も終了コードも取れない（実測。終了コードが -1 のまま返る）。コンテナに `sh` が要る
-  - 1 行を 1 つの値のレコードとして読み（`RecordReader` の `OutputMode::Log`）、`LOG_MAX_BYTES`（1MB）で切る
+  - 1 行を 1 つの値のレコードとして読み（`RecordReader` の `OutputMode::Log`）、`LOG_MAX_BYTES`（1MB）で切る。
+    入り切らない行は入るぶんだけ（文字の途中で切らずに）残す（捨てると、最初の行が長いだけでログが空になる）
   - **エラーのときは、それまでのログを前に付けて返す**（`Outcome::Failed` が sink を持ち帰る）。複数の文は失敗した
     文の前まで実行されて確定している（MySQL は `--force` を付けないので止まる、PostgreSQL は `ON_ERROR_STOP=1`）
 - **表は `ROW_LIMIT` 行まで持つ**（`Collect` の `limit`。SQL に `LIMIT` を足せないので、超えた行は読み捨てる）。
@@ -124,9 +153,12 @@ DB タブの「SQL」で入力した SQL を、**加工せずに**クライア�
 - ログの形で流したあとは、**同じ `Session` でテーブルの一覧を読み直して結果に添える**（`DbExec::Log` の `tables`。
   DDL で増減するので。別のコマンドで `db_probe` を流し直すと、inspect とクライアントの解決と 3 回の問い合わせが
   余分にかかる）。エラーのときは一覧が添わないので、フロントが `db_probe` で読み直す（`DbTab.vue` の `refreshTables`）。
-  選んでいたテーブルが一覧から消えたら選択を外す（`setTables`）。接続先が変わったら SQL の結果は捨て、入力は残す
-- 範囲を選んでいれば、その部分だけを実行する。キーは `Mod+Enter`（`matchChord`。`KeyboardShortcuts.vue` と
-  マニュアルの DB ビューワの節）
+  選んでいたテーブルが一覧から消えたら選択を外す（`setTables`）。読み直しを待つあいだに次の実行が始まったら、届いた
+  一覧は捨てる（`execSeq`。次の実行が添える新しい一覧を古い一覧で上書きしない）。接続先が変わったら SQL の結果は
+  捨て、入力は残す
+- 範囲を選んでいれば、その部分だけを実行する。**選択の有無は範囲（`selectionStart` と `selectionEnd`）で決める**。
+  中身で決めると、空白だけを選んだときに全体へ戻り、選んでいない文まで実行する（空白だけの選択は何もしない）。
+  キーは `Mod+Enter`（`matchChord`。`KeyboardShortcuts.vue` とマニュアルの DB ビューワの節）
 
 ## パスワード
 

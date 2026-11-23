@@ -380,10 +380,38 @@ export function probeAskText(reason: Extract<DbProbeVerdict, { kind: 'ask' }>['r
   )
 }
 
-/** エラーの文言。クライアントが無いときは、どこに何が無いかを言う。 */
+/** 入力した SQL にクライアントのコマンドがあったときのエラーの接頭辞（`db::CLIENT_COMMAND`）。 */
+const CLIENT_COMMAND = 'db-client-command:'
+
+/** SQL が長すぎて渡せないときのエラーの接頭辞（`db::SQL_TOO_LONG`。後ろに上限のバイト数）。 */
+const SQL_TOO_LONG = 'db-sql-too-long:'
+
+/** コンテナに `sh` が無く、入力した SQL を渡せなかったときのエラー（`db::CONTAINER_SH_NOT_FOUND`）。 */
+const CONTAINER_SH_NOT_FOUND = 'db-container-sh-not-found'
+
+/**
+ * 入力した SQL を、実行する前に断ったか（クライアントのコマンド・長すぎる SQL）。断ったなら何も
+ * 実行されていないので、テーブルの一覧を読み直さなくてよい。
+ */
+export function rejectedBeforeRun(error: unknown): boolean {
+  const s = String(error)
+  return s.startsWith(CLIENT_COMMAND) || s.startsWith(SQL_TOO_LONG)
+}
+
+/**
+ * エラーの文言。クライアントが無いときは、どこに何が無いかを言う。入力した SQL を断ったとき
+ * （クライアントのコマンド、長すぎる SQL）は、その理由を言う。
+ */
 export function dbErrorText(error: unknown, target: DbTarget): string {
+  const s = String(error)
+  if (s.startsWith(CLIENT_COMMAND)) return t('db.clientCommand', { command: s.slice(CLIENT_COMMAND.length) })
+  if (s.startsWith(SQL_TOO_LONG)) {
+    const kib = Math.floor(Number(s.slice(SQL_TOO_LONG.length)) / 1024)
+    return t('db.sqlTooLong', { limit: kib.toLocaleString() })
+  }
+  if (s === CONTAINER_SH_NOT_FOUND) return t('db.containerShNotFound')
   const missing = missingClients(error)
-  if (!missing) return String(error)
+  if (!missing) return s
   const via = target.via
   const where =
     via.kind === 'container' ? t('db.whereContainer') : t('db.whereShell', { shell: shellProfileLabel(via.shell) })

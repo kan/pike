@@ -16,7 +16,14 @@ import { Copy, Play, RefreshCw, Save } from 'lucide-vue-next'
 import { computed, nextTick, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { useCsvTable } from '../../composables/useCsvTable'
 import { useI18n } from '../../i18n'
-import { dbErrorText, dbResultToCsv, ENGINE_LABELS, formatDbResult, tableBadge } from '../../lib/dbViewer'
+import {
+  dbErrorText,
+  dbResultToCsv,
+  ENGINE_LABELS,
+  formatDbResult,
+  rejectedBeforeRun,
+  tableBadge,
+} from '../../lib/dbViewer'
 import { hostDefaultShell } from '../../lib/host'
 import { chordLabel, matchChord } from '../../lib/keys'
 import { dbDump, dbExecute, dbProbe, dbRows, dbSchema, fsWriteFile, pickSaveFile } from '../../lib/tauri'
@@ -153,8 +160,9 @@ async function execute() {
   const to = target.value
   const el = sqlInput.value
   if (!to || !el || executing.value) return
-  const selected = el.value.slice(el.selectionStart, el.selectionEnd)
-  const sql = selected.trim() ? selected : el.value
+  // 選択の有無は範囲で決める。空白だけを選んだときに全体へ戻すと、選んでいない文まで実行するので、
+  // そのときは何もしない。
+  const sql = el.selectionStart !== el.selectionEnd ? el.value.slice(el.selectionStart, el.selectionEnd) : el.value
   if (!sql.trim()) return
   const my = ++execSeq
   executing.value = true
@@ -171,18 +179,23 @@ async function execute() {
     if (my !== execSeq) return
     sqlOutput.value = null
     sqlError.value = dbErrorText(e, to)
-    // 複数の文は、失敗した文の前までが実行されている。エラーには一覧が添わないので読み直す。
-    void refreshTables(to)
+    // 複数の文は、失敗した文の前までが実行されている。エラーには一覧が添わないので読み直す
+    // （実行する前に断ったときは何も変わっていないので読み直さない）。
+    if (!rejectedBeforeRun(e)) void refreshTables(to, my)
   } finally {
     if (my === execSeq) executing.value = false
   }
 }
 
-/** テーブルの一覧だけを読み直す（選んでいるテーブルと表示はそのまま）。取れなくても実行の結果は見せる。 */
-async function refreshTables(to: DbTarget) {
+/**
+ * テーブルの一覧だけを読み直す（選んでいるテーブルと表示はそのまま）。取れなくても実行の結果は見せる。
+ * 読み直しを待つあいだに次の実行が始まったら（`execSeq` が進んだら）、届いた一覧は捨てる（次の実行が
+ * 添えてくる新しい一覧を、古い一覧で上書きしないように）。
+ */
+async function refreshTables(to: DbTarget, my: number) {
   try {
     const pre = await dbProbe(to)
-    if (target.value === to) setTables(pre.tables)
+    if (target.value === to && my === execSeq) setTables(pre.tables)
   } catch {
     // 一覧の失敗は、次に開き直したときか「接続先を変える」で出る。
   }

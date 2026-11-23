@@ -1213,6 +1213,11 @@ export default {
   'db.queryTruncated': 'Showing the first {limit} rows.',
   'db.logTruncated': 'The output is long; only the beginning is shown.',
   'db.saveQueryHint': 'Write the shown result to a file',
+  'db.clientCommand':
+    'SQL containing a client command ({command}) is not run, because it would run OS commands or touch files outside the database permissions. Run it in a terminal.',
+  'db.sqlTooLong': 'SQL passed to a container is limited to {limit} KiB. Split it and run the parts.',
+  'db.containerShNotFound':
+    'The SQL cannot be passed because the container has no sh. Running SQL uses sh in the container.',
   'db.format': 'Format for copy and save',
   'db.copy': 'Copy',
   'db.copyHint': 'Copy the loaded rows',

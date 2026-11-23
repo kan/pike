@@ -1210,6 +1210,10 @@ export default {
   'db.queryTruncated': '先頭 {limit} 行だけを表示しています',
   'db.logTruncated': '出力が長いので、先頭だけを表示しています',
   'db.saveQueryHint': '表示している結果をファイルに書き出す',
+  'db.clientCommand':
+    'クライアントのコマンド（{command}）を含む SQL は実行しません。OS のコマンドやファイルの操作が DB の権限の外で動くためです。ターミナルで実行してください',
+  'db.sqlTooLong': 'コンテナへ渡せる SQL は {limit} KiB までです。分けて実行してください',
+  'db.containerShNotFound': 'コンテナに sh が無いので、SQL を渡せません。SQL の実行には、コンテナの中の sh を使います',
   'db.format': 'コピーと保存の形式',
   'db.copy': 'コピー',
   'db.copyHint': '読み込んだ行をコピー',

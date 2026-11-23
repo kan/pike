@@ -58,10 +58,33 @@ pub enum OutputMode {
     Log,
 }
 
+/// SQL の渡し方。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SqlInput<'a> {
+    /// 引数の 1 語（`--execute=` / `--command=`）。固定の SQL（一覧・スキーマ・レコード）。
+    Arg(&'a str),
+    /// 標準入力（呼び出し側が流し込む）。**入力した SQL はこちら**（`db_execute`）:
+    ///
+    /// - psql の `--command` に複数の文を渡すと 1 回の問い合わせになり、サーバーは 1 つの暗黙の
+    ///   トランザクションで実行する。途中の文が失敗すると前の文も取り消されるのに、ログには前の文の結果
+    ///   （`INSERT 0 1`）が残る。`CREATE INDEX CONCURRENTLY` のようなトランザクションの中で実行できない文も
+    ///   通らない。標準入力（`--file=-`）なら psql が文ごとに送るので、文ごとに確定し、`ON_ERROR_STOP=1` で
+    ///   失敗した文の前までが残る（エラーに `psql:<stdin>:4:` と行も付く。どれも実測）
+    /// - 引数の長さには上限がある（Linux は 1 語 128 KiB、Windows はコマンドライン全体で 32,767 文字）。
+    ///   長い INSERT は引数では渡らない
+    /// - MySQL は標準入力から読んでも `--batch` と `--table -vv` の出力の形が変わらない（実測）
+    Stdin,
+}
+
 /// クライアントの引数（プログラム名は含めない）。値は `--name=value` の 1 語で渡す
 /// （`-` で始まる値を別のオプションと読ませない）。シェルを挟まずに argv で渡るので、
 /// 値の中身による注入は起きない。
-pub fn client_args(engine: Engine, conn: &ConnArgs, sql: &str, mode: OutputMode) -> Vec<String> {
+pub fn client_args(
+    engine: Engine,
+    conn: &ConnArgs,
+    sql: SqlInput,
+    mode: OutputMode,
+) -> Vec<String> {
     let mut args: Vec<&str> = match engine {
         // `--batch` はタブ区切り・1 行目が見出し。値の中のタブ・改行・`\` は `\t` / `\n` /
         // `\\` に置き換わり、NULL は `NULL` になる（`--raw` は付けない。付けると値の中の
@@ -94,6 +117,15 @@ pub fn client_args(engine: Engine, conn: &ConnArgs, sql: &str, mode: OutputMode)
         (Engine::Postgres, OutputMode::Records) => args.push("-q"),
         _ => {}
     }
+    // **標準入力から読む MySQL は `--binary-mode` で、クライアントのコマンドを止める**（`charset` と
+    // `delimiter` 以外。`\!` は `Unknown command` に、行頭の `system` はサーバーへ送られて構文エラーになる。
+    // 付けないと `system id` は OS のコマンドとして動く。どれも mariadb 11.8 で実測）。字句で探す
+    // `client_command` は、MySQL では文字列の読み方が `sql_mode`（`NO_BACKSLASH_ESCAPES` など）や実行される
+    // コメント（`/*! ... */`）で変わるので追い切れない。あちらは断る理由を見せるためのもので、止めるのはこれ。
+    // 副作用は `\r\n` を `\n` に直さないことと `\0` を文の終わりと見なさないことで、どちらも困らない。
+    if engine == Engine::Mysql && sql == SqlInput::Stdin {
+        args.push("--binary-mode");
+    }
     let mut args: Vec<String> = args.into_iter().map(str::to_owned).collect();
     if let Some(h) = conn.host {
         args.push(format!("--host={h}"));
@@ -113,33 +145,23 @@ pub fn client_args(engine: Engine, conn: &ConnArgs, sql: &str, mode: OutputMode)
             if let Some(d) = conn.database {
                 args.push(format!("--database={d}"));
             }
-            args.push(format!("--execute={sql}"));
+            // 標準入力なら引数は要らない（`--batch` のまま標準入力から読む）。
+            if let SqlInput::Arg(sql) = sql {
+                args.push(format!("--execute={sql}"));
+            }
         }
         Engine::Postgres => {
             // DB 名を省くと psql はユーザー名と同じ DB へつなぐ。DB の一覧を取るときなど、
             // 名前が決まっていないときは必ずある `postgres` へつなぐ。
             let db = conn.database.unwrap_or("postgres");
             args.push(format!("--dbname={db}"));
-            if sql_on_stdin(engine, mode) {
-                args.push("--file=-".to_owned());
-            } else {
-                args.push(format!("--command={sql}"));
-            }
+            args.push(match sql {
+                SqlInput::Arg(sql) => format!("--command={sql}"),
+                SqlInput::Stdin => "--file=-".to_owned(),
+            });
         }
     }
     args
-}
-
-/// SQL を引数ではなく標準入力で渡すか。**PostgreSQL のログの形（入力した SQL）だけ**。
-///
-/// `--command` に複数の文を渡すと、psql は 1 回の問い合わせとして送り、サーバーはそれを 1 つの暗黙の
-/// トランザクションで実行する。途中の文が失敗すると前の文も取り消されるのに、ログには前の文の結果
-/// （`INSERT 0 1`）が残る。`CREATE INDEX CONCURRENTLY` のようなトランザクションの中で実行できない文も
-/// 通らない。標準入力（`--file=-`）なら psql が文ごとに分けて送るので、文ごとに確定し、
-/// `ON_ERROR_STOP=1` で失敗した文の前までが残る（エラーに `psql:<stdin>:4:` と行も付く。どれも実測）。
-/// MySQL は `--execute` でもクライアントが文ごとに分けて送るので、引数のまま。
-pub fn sql_on_stdin(engine: Engine, mode: OutputMode) -> bool {
-    engine == Engine::Postgres && mode == OutputMode::Log
 }
 
 /// 識別子の引用（MySQL はバッククォート、PostgreSQL は二重引用符。中の引用符は二重化）。
@@ -297,7 +319,9 @@ pub fn plan_user_sql(engine: Engine, sql: &str) -> Option<UserSql> {
         // `SHOW` / `EXPLAIN` は `COPY` で包めないので、ログ（整列した表）で見せる。
         Engine::Postgres => &["SELECT", "WITH", "VALUES", "TABLE"],
     };
-    if shape.statements > 1 || !queries.contains(&shape.first_word.as_str()) {
+    // MySQL の `WITH ... UPDATE` と `SELECT ... INTO @v` は先頭の語が問い合わせでも書き込みで、結果の表を
+    // 返さない。表の形で流すと件数が出ないので、ログで流す（流したあとで切り替えると 2 回実行する）。
+    if shape.statements > 1 || shape.writes || !queries.contains(&shape.first_word.as_str()) {
         return Some(UserSql::Script);
     }
     // 前後の `;` とコメントは落とす（`COPY (...)` の中に `;` は書けず、行末のコメントは閉じ括弧を
@@ -319,6 +343,27 @@ pub fn plan_user_sql(engine: Engine, sql: &str) -> Option<UserSql> {
 pub fn copy_rejected(engine: Engine, stderr: &str) -> bool {
     engine == Engine::Postgres && stderr.contains("0A000") && stderr.contains("BeginCopy")
 }
+
+/// 入力された SQL に含まれる、クライアント（`mysql` / `psql`）が自分で実行するコマンド。あれば
+/// その綴りを返す（呼び出し側が実行を断る）。
+///
+/// **クライアントのコマンドは SQL ではなく、DB の権限の外で動く**: `\! id` と MySQL の行頭の
+/// `system id` はクライアントを起こした環境（ホスト・WSL・コンテナ）の OS のコマンドを走らせる
+/// （どちらも実測）。`source` / `tee` / `pager` / `edit` もファイルや別のプログラムに触る。
+/// 文字列・引用した識別子・コメントの外の `\` はどれもクライアントのコマンドの始まりなので全部断り、
+/// MySQL の名前の付いたコマンドは行の頭か文の頭のものを断る（そこでしか認められない）。
+///
+/// **psql はこれが守りで、MySQL はこれが補助。** psql の字句の読み方（入れ子のコメント・ドル引用・
+/// `E'...'` だけが `\` で逃がす）はここと同じで、`standard_conforming_strings` を切っても文字列が
+/// 長くなる向きにしか変わらないので、外の `\` を見落とさない。MySQL は `sql_mode` や実行される
+/// コメントで読み方が変わるので、止めるのはクライアントの `--binary-mode`（`client_args`）で、ここは
+/// 実行の前に断って理由を見せるためのもの。
+pub fn client_command(engine: Engine, sql: &str) -> Option<String> {
+    sql_shape(engine, sql).client_command
+}
+
+/// MySQL のクライアントのコマンドのうち、OS やファイルに触るもの（`client_command`）。
+const MYSQL_CLIENT_COMMANDS: &[&str] = &["SYSTEM", "SOURCE", "TEE", "PAGER", "EDIT"];
 
 /// エラーを見せる形にする。PostgreSQL の `VERBOSITY=verbose` が足す `LOCATION:` の行（サーバーの
 /// ソースの位置）を落とす。見出しの語は翻訳されるので、`関数名, ファイル.c:行` の形で見分ける。
@@ -346,6 +391,11 @@ struct SqlShape {
     body_start: usize,
     /// 最後の意味のある文字の直後（末尾の `;`・空白・コメントを除いた長さ）。
     body_end: usize,
+    /// MySQL の最初の文が、括弧の外に書き込みの語（`UPDATE` / `DELETE` / `INSERT` / `REPLACE` / `INTO`）を
+    /// 持つか（`WITH ... UPDATE`、`SELECT ... INTO @v`）。
+    writes: bool,
+    /// クライアントのコマンド（`client_command`）。
+    client_command: Option<String>,
 }
 
 /// 識別子の一部になりうるバイトか（ASCII の英数字と `_`、と UTF-8 の多バイト文字）。
@@ -364,8 +414,16 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
         first_word: String::new(),
         body_start: 0,
         body_end: 0,
+        writes: false,
+        client_command: None,
     };
     let mut in_statement = false;
+    // 行の頭か（空白だけを読んだ）。MySQL の名前の付いたクライアントのコマンドを見分ける。
+    let mut line_start = true;
+    // 括弧の深さ（`writes` は括弧の外の語だけを見る）。
+    let mut depth = 0usize;
+    // 直前の語（`FOR UPDATE` の `UPDATE` を書き込みと数えないため）。
+    let mut prev_word = String::new();
     let mut i = 0;
     // 意味のある字句を 1 つ読んだ（`start..end`）。
     let mark = |shape: &mut SqlShape, in_statement: &mut bool, start: usize, end: usize| {
@@ -388,17 +446,37 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
     while i < bytes.len() {
         let b = bytes[i];
         let next = bytes.get(i + 1).copied();
+        // 空白とコメント以外を読んだら行の頭ではなくなる（下の各腕で戻す）。
+        let at_line_start = std::mem::replace(&mut line_start, false);
         match b {
-            b if b.is_ascii_whitespace() => i += 1,
+            b if b.is_ascii_whitespace() => {
+                line_start = at_line_start || b == b'\n';
+                i += 1;
+            }
             b';' => {
                 in_statement = false;
+                depth = 0;
                 i += 1;
             }
             // `(SELECT ...) UNION ...` の最初の語を拾うため、括弧は語の前で飛ばす（中身として数える）。
             // （`(` の位置から語を取ると空なので、最初の語は次の字句で決まる）。
-            b'(' => {
+            b'(' | b')' => {
+                depth = if b == b'(' {
+                    depth + 1
+                } else {
+                    depth.saturating_sub(1)
+                };
                 mark(&mut shape, &mut in_statement, i, i + 1);
                 i += 1;
+            }
+            // 文字列・引用・コメントの外の `\` は、クライアントのコマンド（`\!` `\.` `\g` ...）。
+            b'\\' => {
+                let len = sql[i + 1..].chars().next().map_or(0, char::len_utf8);
+                shape
+                    .client_command
+                    .get_or_insert_with(|| sql[i..i + 1 + len].to_owned());
+                mark(&mut shape, &mut in_statement, i, i + 1 + len);
+                i += 1 + len;
             }
             b'-' if next == Some(b'-')
                 && (engine == Engine::Postgres
@@ -407,9 +485,14 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
                         .is_none_or(|c| c.is_ascii_whitespace() || c.is_ascii_control())) =>
             {
                 i = line_end(bytes, i);
+                line_start = true;
             }
-            b'#' if engine == Engine::Mysql => i = line_end(bytes, i),
+            b'#' if engine == Engine::Mysql => {
+                i = line_end(bytes, i);
+                line_start = true;
+            }
             b'/' if next == Some(b'*') => {
+                line_start = at_line_start;
                 let end = block_comment_end(engine, bytes, i);
                 // MySQL の `/*! ... */` と MariaDB の `/*M! ... */` はサーバーが実行する。
                 let executed = engine == Engine::Mysql
@@ -440,6 +523,41 @@ fn sql_shape(engine: Engine, sql: &str) -> SqlShape {
                 let end = dollar_end(sql, i).unwrap_or(i + 1);
                 mark(&mut shape, &mut in_statement, i, end);
                 i = end;
+            }
+            // 語（識別子・キーワード）。`$` は識別子の続きになりうる。
+            b if b.is_ascii_alphabetic() || b == b'_' || b >= 0x80 => {
+                let len = bytes[i..]
+                    .iter()
+                    .position(|&c| !(is_ident_byte(c) || c == b'$'))
+                    .unwrap_or(bytes.len() - i);
+                let word = sql[i..i + len].to_ascii_uppercase();
+                let statement_start = !in_statement;
+                mark(&mut shape, &mut in_statement, i, i + len);
+                if engine == Engine::Mysql {
+                    if (at_line_start || statement_start)
+                        && MYSQL_CLIENT_COMMANDS.contains(&word.as_str())
+                    {
+                        shape
+                            .client_command
+                            .get_or_insert(word.to_ascii_lowercase());
+                    }
+                    // 直後が `(` なら関数の呼び出し（`REPLACE(s, 'a', 'b')`）で、書き込みではない。
+                    let call = bytes[i + len..]
+                        .iter()
+                        .find(|c| !c.is_ascii_whitespace())
+                        .is_some_and(|&c| c == b'(');
+                    let write_word = matches!(
+                        word.as_str(),
+                        "UPDATE" | "DELETE" | "INSERT" | "REPLACE" | "INTO"
+                    );
+                    // `SELECT ... FOR UPDATE` は行を返す（ロックを取るだけ）。
+                    let locking = word == "UPDATE" && prev_word == "FOR";
+                    if shape.statements == 1 && depth == 0 && write_word && !call && !locking {
+                        shape.writes = true;
+                    }
+                }
+                prev_word = word;
+                i += len;
             }
             _ => {
                 let len = sql[i..].chars().next().map_or(1, char::len_utf8);
@@ -829,21 +947,93 @@ mod tests {
             user: Some("-root"),
             database: None,
         };
-        let args = client_args(Engine::Mysql, &conn, "SELECT 1", OutputMode::Records);
+        let sql = SqlInput::Arg("SELECT 1");
+        let args = client_args(Engine::Mysql, &conn, sql, OutputMode::Records);
         assert!(args.contains(&"--user=-root".to_owned()));
         assert!(args.contains(&"--port=3306".to_owned()));
         assert!(!args.iter().any(|a| a.starts_with("--database")));
         assert_eq!(args.last().unwrap(), "--execute=SELECT 1");
 
-        let pg = |mode| client_args(Engine::Postgres, &ConnArgs::default(), "SELECT 1", mode);
-        let args = pg(OutputMode::Records);
+        let pg = |sql, mode| client_args(Engine::Postgres, &ConnArgs::default(), sql, mode);
+        let args = pg(sql, OutputMode::Records);
         assert!(args.contains(&"--dbname=postgres".to_owned()));
         assert!(!args.iter().any(|a| a.contains("password")));
+        assert_eq!(args.last().unwrap(), "--command=SELECT 1");
         // ログは `-q` を外す（付けるとコマンドの結果が出ない）。MySQL は表と結果を文ごとに出させる。
         assert!(args.contains(&"-q".to_owned()));
-        assert!(!pg(OutputMode::Log).contains(&"-q".to_owned()));
-        let args = client_args(Engine::Mysql, &conn, "x", OutputMode::Log);
+        assert!(!pg(sql, OutputMode::Log).contains(&"-q".to_owned()));
+        let args = client_args(Engine::Mysql, &conn, sql, OutputMode::Log);
         assert!(args.contains(&"--table".to_owned()) && args.contains(&"-vv".to_owned()));
+        // 標準入力なら SQL を引数に載せない（psql は `--file=-` で読む）。
+        let args = client_args(Engine::Mysql, &conn, SqlInput::Stdin, OutputMode::Log);
+        assert!(!args.iter().any(|a| a.starts_with("--execute")));
+        // 標準入力から読む MySQL はクライアントのコマンドを止める。固定の SQL（引数）には付けない。
+        assert!(args.contains(&"--binary-mode".to_owned()));
+        assert!(
+            !client_args(Engine::Mysql, &conn, sql, OutputMode::Log)
+                .contains(&"--binary-mode".to_owned())
+        );
+        assert_eq!(
+            pg(SqlInput::Stdin, OutputMode::Log).last().unwrap(),
+            "--file=-"
+        );
+    }
+
+    #[test]
+    fn client_commands_are_found_outside_literals() {
+        let cmd = |e, s| client_command(e, s);
+        // psql のメタコマンド（`\!` はシェルを起こす）。
+        assert_eq!(
+            cmd(Engine::Postgres, "SELECT 1;\n\\! whoami"),
+            Some("\\!".to_owned())
+        );
+        assert_eq!(
+            cmd(Engine::Postgres, "SELECT 1 \\gexec"),
+            Some("\\g".to_owned())
+        );
+        // 文字列・引用・コメントの中の `\` は SQL の一部。
+        assert_eq!(
+            cmd(Engine::Postgres, r"SELECT E'\n', '\', $$\!$$ -- \!"),
+            None
+        );
+        assert_eq!(
+            cmd(Engine::Mysql, r"SELECT 'a\'b', `x\y` /* \! */ # \!"),
+            None
+        );
+        // MySQL の名前の付いたコマンドは行の頭か文の頭だけ。
+        assert_eq!(
+            cmd(Engine::Mysql, "SELECT 1;\nsystem id"),
+            Some("system".to_owned())
+        );
+        assert_eq!(
+            cmd(Engine::Mysql, "SELECT 1; SOURCE /etc/x.sql"),
+            Some("source".to_owned())
+        );
+        assert_eq!(cmd(Engine::Mysql, "\\! id"), Some("\\!".to_owned()));
+        assert_eq!(cmd(Engine::Mysql, "SELECT system, source FROM t"), None);
+        assert_eq!(cmd(Engine::Postgres, "system id"), None);
+    }
+
+    #[test]
+    fn mysql_writes_behind_a_select_word_are_scripts() {
+        use UserSql::{Query, Script};
+        let plan = |s| plan_user_sql(Engine::Mysql, s);
+        assert_eq!(
+            plan("WITH c AS (SELECT 1 AS id) UPDATE t SET f = 1 WHERE id IN (SELECT id FROM c)"),
+            Some(Script)
+        );
+        assert_eq!(plan("SELECT COUNT(*) INTO @n FROM t"), Some(Script));
+        // `FOR UPDATE` は行を返す。
+        let q = "SELECT * FROM t WHERE id = 1 FOR UPDATE";
+        assert_eq!(plan(q), Some(Query(q.to_owned())));
+        // 括弧の中と関数の呼び出しは書き込みではない。
+        let q = "WITH c AS (SELECT 1) SELECT REPLACE(name, 'a', 'b') FROM c";
+        assert_eq!(plan(q), Some(Query(q.to_owned())));
+        // PostgreSQL は `COPY` が拒んだら流し直すので、ここでは見分けない。
+        assert!(matches!(
+            plan_user_sql(Engine::Postgres, "WITH c AS (SELECT 1) UPDATE t SET f = 1"),
+            Some(Query(_))
+        ));
     }
 
     #[test]
