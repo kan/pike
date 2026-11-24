@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.75.1] - 2026-11-24
+
 ### Changes
 
 - 依存ライブラリを更新した（tauri、marked、dompurify、vite ほか）
@@ -2047,6 +2049,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.75.1]: https://github.com/kan/pike/releases/tag/v0.75.1
 [0.75.0]: https://github.com/kan/pike/releases/tag/v0.75.0
 [0.74.0]: https://github.com/kan/pike/releases/tag/v0.74.0
 [0.73.0]: https://github.com/kan/pike/releases/tag/v0.73.0
