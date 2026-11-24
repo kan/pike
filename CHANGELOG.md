@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changes
+
+- 依存ライブラリを更新した（tauri、marked、dompurify、vite ほか）
+
 ## [0.75.0] - 2026-11-23
 
 ### Features
