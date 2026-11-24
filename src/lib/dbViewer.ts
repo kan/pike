@@ -482,9 +482,7 @@ export function parseSavedConnections(raw: unknown): DbSavedConnection[] {
     if (typeof x !== 'object' || x === null) return []
     const o = x as Record<string, unknown>
     const engine =
-      typeof o.engine === 'string' && Object.prototype.hasOwnProperty.call(ENGINE_LABELS, o.engine)
-        ? (o.engine as DbEngine)
-        : null
+      typeof o.engine === 'string' && Object.keys(ENGINE_LABELS).includes(o.engine) ? (o.engine as DbEngine) : null
     // シェルの妥当性は `shellId` と `shellFromId` の往復で見る（`stores/settings.ts` の `sanitizeShell`
     // と同じ。判定を写すと、シェルの種類を増やしたときに片方だけ取り残される）。
     // ただし `shellId` は distro の無い WSL を `wsl:undefined` にして往復を通すので、distro だけは先に見る。

@@ -24,6 +24,7 @@ import { type LiveSessionRow, useLiveSessionsStore } from '../../stores/liveSess
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import LiveAccountHeading from '../LiveAccountHeading.vue'
+// biome-ignore lint/style/useImportType: template の <LiveSessionMenu> で使う（biome は template を読まない）
 import LiveSessionMenu from '../LiveSessionMenu.vue'
 import TerminalPeekMark from '../TerminalPeekMark.vue'
 
